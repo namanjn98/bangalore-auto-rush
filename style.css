@@ -1,0 +1,370 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #0a0a1a;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  font-family: 'Press Start 2P', monospace;
+  overflow: hidden;
+}
+
+#game-wrapper {
+  position: relative;
+  width: 800px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 40px rgba(255, 200, 50, 0.3);
+  border: 2px solid #333;
+}
+
+#gameCanvas {
+  display: block;
+  width: 800px;
+  height: 380px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: #1a1a2e;
+}
+
+/* Acid mode animation on canvas */
+.acid-mode #gameCanvas {
+  animation: acidHue 0.25s infinite linear;
+}
+@keyframes acidHue {
+  0%   { filter: hue-rotate(0deg) saturate(3) brightness(1.1); }
+  100% { filter: hue-rotate(360deg) saturate(3) brightness(1.1); }
+}
+
+/* Van Gogh mode animation on canvas */
+.van-gogh-mode #gameCanvas {
+  animation: vanGoghPaint 3.5s infinite alternate ease-in-out;
+}
+@keyframes vanGoghPaint {
+  0%   { filter: sepia(0.15) saturate(1.4) hue-rotate(5deg)  brightness(1.03); }
+  50%  { filter: sepia(0.22) saturate(1.6) hue-rotate(-3deg) brightness(1.06); }
+  100% { filter: sepia(0.10) saturate(1.3) hue-rotate(10deg) brightness(1.04); }
+}
+
+/* Van Gogh warning text */
+.van-gogh-mode #acid-warning {
+  color: #ffd700 !important;
+  text-shadow: 2px 2px #996600 !important;
+  animation: vanGoghPulse 0.6s infinite alternate !important;
+}
+@keyframes vanGoghPulse {
+  from { color: #ffd700; text-shadow: 0 0 8px #ffd700; }
+  to   { color: #ff8800; text-shadow: 0 0 20px #ff9900; }
+}
+
+/* Anime mode — pastel everything */
+.anime-mode {
+  background: #f0e4ff !important;
+}
+.anime-mode #game-wrapper {
+  box-shadow: 0 0 40px rgba(255, 150, 200, 0.45);
+  border-color: #ffb7c5;
+}
+.anime-mode #gameCanvas { background: #e6f4ff; }
+.anime-mode #speed-display { color: #ff9bba; text-shadow: 1px 1px #cc6699; }
+.anime-mode #score-display { color: #a8b8ff; text-shadow: 1px 1px #6677bb; }
+.anime-mode #horn-bar-fill {
+  background: linear-gradient(90deg, #ffb7c5, #c8a0ff, #a0e0ff);
+  box-shadow: 0 0 6px #ffb7c5;
+}
+.anime-mode #horn-bar-container { background: #f8e6f8; border-top-color: #ffb7c5; }
+.anime-mode #note-A { border-color: #ff9bba; color: #ff9bba; }
+.anime-mode #note-S { border-color: #9bffba; color: #9bffba; }
+.anime-mode #note-D { border-color: #9bbfff; color: #9bbfff; }
+.anime-mode #note-F { border-color: #ffdb9b; color: #ffdb9b; }
+.anime-mode #note-A.pressed { background: rgba(255,155,186,0.3); }
+.anime-mode #note-S.pressed { background: rgba(155,255,186,0.3); }
+.anime-mode #note-D.pressed { background: rgba(155,191,255,0.3); }
+.anime-mode #note-F.pressed { background: rgba(255,219,155,0.3); }
+.anime-mode .combo-hint { color: #c8a0cc; }
+.anime-mode #start-screen,
+.anime-mode #gameover-screen { background: rgba(255, 228, 255, 0.93); color: #5533aa; }
+.anime-mode #start-title { color: #ff69b4; text-shadow: 3px 3px #cc4488, 0 0 18px #ff88cc; }
+.anime-mode #start-sub   { color: #9966dd; }
+.anime-mode #start-story { color: #9980aa; }
+.anime-mode #controls-box { color: #88aaff; border-color: #cc99ee; }
+.anime-mode button { background: #ffb7c5; color: #5533aa; box-shadow: 4px 4px #cc6699; }
+.anime-mode button:hover  { background: #ffc8d8; }
+.anime-mode button:active { box-shadow: 2px 2px #cc6699; }
+.anime-mode #gameover-title { color: #ff69b4; text-shadow: 3px 3px #cc4488, 0 0 18px #ff88cc; }
+.anime-mode #gameover-score { color: #a8b8ff; }
+.anime-mode #gameover-msg   { color: #9980aa; }
+
+/* UI overlay on top of canvas */
+#ui-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 800px;
+  height: 380px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#speed-display {
+  position: absolute;
+  top: 8px; left: 10px;
+  font-size: 8px;
+  color: #aaffaa;
+  text-shadow: 1px 1px #003300;
+}
+
+#score-display {
+  position: absolute;
+  top: 8px; right: 10px;
+  font-size: 8px;
+  color: #ffff88;
+  text-shadow: 1px 1px #333300;
+}
+
+#zone-banner {
+  position: absolute;
+  top: 40%;
+  width: 100%;
+  text-align: center;
+  font-size: 18px;
+  color: #fff;
+  text-shadow: 3px 3px #000, -1px -1px #000;
+  opacity: 1;
+  transition: opacity 1s ease;
+  letter-spacing: 2px;
+}
+#zone-banner.fade-out { opacity: 0; }
+#zone-banner.hidden { display: none; }
+
+#acid-warning {
+  position: absolute;
+  top: 30%;
+  width: 100%;
+  text-align: center;
+  font-size: 16px;
+  color: #ff00ff;
+  text-shadow: 2px 2px #440044;
+  animation: acidPulse 0.3s infinite alternate;
+}
+#acid-warning.hidden { display: none; }
+@keyframes acidPulse {
+  from { color: #ff00ff; text-shadow: 0 0 8px #ff00ff; }
+  to   { color: #ffff00; text-shadow: 0 0 20px #ffff00; }
+}
+
+#power-indicator {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  padding: 4px 8px;
+  border: 2px solid #fff;
+  background: rgba(0,0,0,0.7);
+  color: #00ffff;
+  white-space: nowrap;
+}
+#power-indicator.hidden { display: none; }
+
+/* Horn bar at bottom */
+#horn-bar-container {
+  background: #111;
+  border-top: 3px solid #333;
+  padding: 6px 10px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#horn-bar-track {
+  height: 10px;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+#horn-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #ff00ff, #00ffff, #ffff00);
+  transition: width 0.08s ease;
+  box-shadow: 0 0 6px #ff00ff;
+}
+
+#horn-keys {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.note-slot {
+  width: 52px;
+  height: 32px;
+  border: 2px solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  cursor: pointer;
+  transition: transform 0.05s, background 0.05s, box-shadow 0.05s;
+  user-select: none;
+}
+
+#note-A { border-color: #ff4444; color: #ff4444; }
+#note-S { border-color: #44ff44; color: #44ff44; }
+#note-D { border-color: #4444ff; color: #4488ff; }
+#note-F { border-color: #ffff44; color: #ffff44; }
+
+.note-slot.pressed {
+  transform: scale(1.15);
+  box-shadow: 0 0 12px currentColor;
+}
+#note-A.pressed { background: rgba(255,68,68,0.3); }
+#note-S.pressed { background: rgba(68,255,68,0.3); }
+#note-D.pressed { background: rgba(68,68,255,0.3); }
+#note-F.pressed { background: rgba(255,255,68,0.3); }
+
+#combo-legend {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.combo-hint {
+  font-size: 6px;
+  color: #666;
+}
+
+/* Start screen */
+#start-screen, #gameover-screen {
+  position: absolute;
+  top: 0; left: 0;
+  width: 800px;
+  height: 380px;
+  background: rgba(0,0,0,0.88);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  z-index: 100;
+  color: #fff;
+}
+
+#start-title {
+  font-size: 36px;
+  color: #FFD700;
+  text-shadow: 4px 4px #884400, 0 0 20px #FF8800;
+  letter-spacing: 4px;
+}
+
+#start-sub {
+  font-size: 14px;
+  color: #ff8800;
+  letter-spacing: 6px;
+}
+
+#start-story {
+  font-size: 7px;
+  color: #aaa;
+  text-align: center;
+  line-height: 2;
+  max-width: 500px;
+}
+
+#controls-box {
+  font-size: 7px;
+  color: #88ffaa;
+  text-align: center;
+  line-height: 2.2;
+  border: 1px solid #336633;
+  padding: 8px 16px;
+}
+
+button {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  padding: 10px 24px;
+  background: #FFD700;
+  color: #000;
+  border: none;
+  cursor: pointer;
+  box-shadow: 4px 4px #884400;
+  transition: transform 0.1s;
+}
+button:hover { transform: scale(1.05); background: #ffee44; }
+button:active { transform: scale(0.97); box-shadow: 2px 2px #884400; }
+
+#gameover-screen.hidden { display: none; }
+
+/* Start screen mode toggles */
+#mode-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  margin: 2px 0;
+}
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 7px;
+  color: #ccc;
+}
+.toggle-label { color: #aaa; min-width: 82px; text-align: right; }
+.toggle-desc  { color: #666; }
+.toggle-opt   { font-size: 6px; color: #555; transition: color 0.2s; }
+.toggle-opt.opt-active { color: #cccccc; }
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #333;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background 0.2s;
+  border: 1px solid #555;
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px; height: 14px;
+  left: 2px; top: 2px;
+  background: #888;
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+.toggle-switch input:checked + .toggle-slider { background: #FFD700; border-color: #cc9900; }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); background: #fff; }
+/* Anime toggle accent */
+#toggle-anime:checked + .toggle-slider { background: #ffb7c5; border-color: #cc8899; }
+/* Overlay toggle accent */
+#toggle-overlay:checked + .overlay-slider { background: #c8a855; border-color: #997722; }
+
+#gameover-title {
+  font-size: 28px;
+  color: #ff4444;
+  text-shadow: 3px 3px #440000, 0 0 20px #ff0000;
+}
+
+#gameover-score {
+  font-size: 12px;
+  color: #FFD700;
+}
+
+#gameover-msg {
+  font-size: 7px;
+  color: #aaa;
+  text-align: center;
+  line-height: 2;
+}
