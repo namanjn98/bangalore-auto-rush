@@ -1,0 +1,5 @@
+{
+  "scripts": {
+    "setup": "echo 'No dependencies to install — static HTML5 game'"
+  }
+}
