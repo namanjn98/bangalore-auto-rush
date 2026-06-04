@@ -27,6 +27,10 @@ const RunRules = {
     return elapsed >= FIRST_MINUTE_MS;
   },
 
+  shouldAllowDoubleSpawn(elapsed) {
+    return elapsed >= FIRST_MINUTE_MS;
+  },
+
   getObstacleWeightsForElapsed(elapsed, zoneWeights) {
     const phase = this.getRunPhase(elapsed);
     if (phase === 'jump_intro') return { pothole: 1 };
@@ -1217,10 +1221,13 @@ const Obstacles = {
   },
 
   spawn() {
-    let weights = {...this.ZONE_W[GS.zone]};
+    let weights = RunRules.getObstacleWeightsForElapsed(GS.elapsed, this.ZONE_W[GS.zone]);
     if (GS.hornBar < 0.3) { delete weights.it_bus; delete weights.flood; }
-    // don't stack same action type too close
-    if (this.lastAction === 'jump') delete weights.pothole, delete weights.dog, delete weights.garbage;
+    if (RunRules.getRunPhase(GS.elapsed) === 'full_game' && this.lastAction === 'jump') {
+      delete weights.pothole;
+      delete weights.dog;
+      delete weights.garbage;
+    }
     const type = this._wRand(weights);
     const def = this.TYPES[type];
     const gy = def.fullH ? 0 : GROUND_Y - def.h + (def.yOff||0);
@@ -1239,7 +1246,9 @@ const Obstacles = {
     if (this.spawnTimer >= interval) {
       this.spawnTimer = 0;
       this.spawn();
-      if (Math.random() < 0.18) setTimeout(() => { if (GS.alive) this.spawn(); }, 1000);
+      if (RunRules.shouldAllowDoubleSpawn(GS.elapsed) && Math.random() < 0.18) {
+        setTimeout(() => { if (GS.alive) this.spawn(); }, 1000);
+      }
     }
     for (const obs of this.list) {
       obs.x -= GS.speed * (GS.activePower==='turbo_boost' ? 1.8 : 1);
@@ -1380,6 +1389,16 @@ const Acid = {
   },
 
   update(dt) {
+    if (!RunRules.shouldAllowSpecialEvents(GS.elapsed)) {
+      GS.acidCycleTimer = 0;
+      GS.acidMode = false;
+      this.intensity = 0;
+      const warning = document.getElementById('acid-warning');
+      warning.classList.add('hidden');
+      warning.classList.remove('visible-warn');
+      document.body.classList.remove('acid-mode', 'van-gogh-mode');
+      return;
+    }
     GS.acidCycleTimer += dt;
     this.waveT += dt * 0.003;
 
@@ -1716,8 +1735,7 @@ const Game = {
     GS.elapsed += GS.dt;
     GS.frameCount++;
 
-    // dosa break at 60s
-    if (GS.alive && !GS.dosaBreakDone && !GS.dosaBreak && GS.elapsed >= 60000) {
+    if (GS.alive && !GS.dosaBreakDone && !GS.dosaBreak && GS.elapsed >= DOSA_BREAK_AT_MS) {
       DosaBreak.start();
     }
     if (GS.dosaBreak) {
@@ -1732,19 +1750,19 @@ const Game = {
       GS.score = Math.floor(GS.distance / 8);
       GS.speed = Math.min(MAX_SPEED, BASE_SPEED + GS.distance / 9000);
 
-      // zone cycling
-      GS.zoneTimer += GS.dt;
-      if (GS.zoneTimer >= ZONE_DURATION) {
+      if (RunRules.shouldAllowSpecialEvents(GS.elapsed)) {
+        GS.zoneTimer += GS.dt;
+        if (GS.zoneTimer >= ZONE_DURATION) {
+          GS.zoneTimer = 0;
+          GS.zone = (GS.zone + 1) % 5;
+          this.showZoneBanner();
+          Audio.changeZone(GS.zone);
+          Audio.sfx('zoneChange');
+          Audio.setRain(GS.zone <= 1 ? 0.6 : 0.1);
+          GS.lastTime = performance.now();
+        }
+      } else {
         GS.zoneTimer = 0;
-        const prev = GS.zone;
-        GS.zone = (GS.zone + 1) % 5;
-        this.showZoneBanner();
-        Audio.changeZone(GS.zone);
-        Audio.sfx('zoneChange');
-        // rain in park / MG road zones
-        Audio.setRain(GS.zone <= 1 ? 0.6 : 0.1);
-        // reset lastTime so audio/DOM work in this frame doesn't inflate next dt
-        GS.lastTime = performance.now();
       }
 
       BG.update(GS.dt);
@@ -1866,7 +1884,8 @@ const Game = {
 const AutoRajaTestHooks = {
   getRunPhase: elapsed => RunRules.getRunPhase(elapsed),
   getObstacleWeightsForElapsed: (elapsed, zoneWeights) => RunRules.getObstacleWeightsForElapsed(elapsed, zoneWeights),
-  shouldAllowSpecialEvents: elapsed => RunRules.shouldAllowSpecialEvents(elapsed)
+  shouldAllowSpecialEvents: elapsed => RunRules.shouldAllowSpecialEvents(elapsed),
+  shouldAllowDoubleSpawn: elapsed => RunRules.shouldAllowDoubleSpawn(elapsed)
 };
 
 if (typeof module !== 'undefined' && module.exports) {

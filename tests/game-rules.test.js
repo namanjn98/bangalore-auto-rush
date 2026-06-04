@@ -123,4 +123,8 @@ assert.deepEqual(hooks.getObstacleWeightsForElapsed(61000, { pothole: 3, pedestr
 assert.equal(hooks.shouldAllowSpecialEvents(59999), false);
 assert.equal(hooks.shouldAllowSpecialEvents(60000), true);
 
+assert.equal(typeof hooks.shouldAllowDoubleSpawn, 'function');
+assert.equal(hooks.shouldAllowDoubleSpawn(59999), false);
+assert.equal(hooks.shouldAllowDoubleSpawn(60000), true);
+
 console.log('game-rules tests passed');
