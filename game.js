@@ -1706,9 +1706,12 @@ const Game = {
     document.getElementById('gameover-screen').classList.add('hidden');
     document.getElementById('power-indicator').classList.add('hidden');
     document.getElementById('acid-warning').classList.add('hidden');
-    SETTINGS.animeMode = document.getElementById('toggle-anime').checked;
-    SETTINGS.overlayStyle = document.getElementById('toggle-overlay').checked ? 'vangogh' : 'acid';
+    const animeToggle = document.getElementById('toggle-anime');
+    const overlayToggle = document.getElementById('toggle-overlay');
+    SETTINGS.animeMode = !!(animeToggle && animeToggle.checked);
+    SETTINGS.overlayStyle = overlayToggle && overlayToggle.checked ? 'vangogh' : 'acid';
     document.body.classList.remove('acid-mode', 'van-gogh-mode');
+    document.body.classList.add('game-active');
     document.body.classList.toggle('anime-mode', SETTINGS.animeMode);
     Audio._init();
     Audio.startMusic();
@@ -1813,7 +1816,7 @@ const Game = {
     document.getElementById('final-score').textContent = GS.score;
     document.getElementById('gameover-msg').textContent = msgs[GS.score%msgs.length];
     document.getElementById('gameover-screen').classList.remove('hidden');
-    document.body.classList.remove('acid-mode', 'van-gogh-mode');
+    document.body.classList.remove('acid-mode', 'van-gogh-mode', 'game-active');
   },
 
   showZoneBanner() {
@@ -1856,15 +1859,23 @@ const Game = {
       if (!document.hidden && GS.lastTime) GS.lastTime = performance.now();
     });
 
-    document.getElementById('toggle-anime').addEventListener('change', function() {
-      SETTINGS.animeMode = this.checked;
-      document.body.classList.toggle('anime-mode', this.checked);
-    });
-    document.getElementById('toggle-overlay').addEventListener('change', function() {
-      SETTINGS.overlayStyle = this.checked ? 'vangogh' : 'acid';
-      document.getElementById('opt-acid').classList.toggle('opt-active', !this.checked);
-      document.getElementById('opt-vg').classList.toggle('opt-active', this.checked);
-    });
+    const animeToggle = document.getElementById('toggle-anime');
+    if (animeToggle) {
+      animeToggle.addEventListener('change', function() {
+        SETTINGS.animeMode = this.checked;
+        document.body.classList.toggle('anime-mode', this.checked);
+      });
+    }
+    const overlayToggle = document.getElementById('toggle-overlay');
+    if (overlayToggle) {
+      overlayToggle.addEventListener('change', function() {
+        SETTINGS.overlayStyle = this.checked ? 'vangogh' : 'acid';
+        const acidOpt = document.getElementById('opt-acid');
+        const vgOpt = document.getElementById('opt-vg');
+        if (acidOpt) acidOpt.classList.toggle('opt-active', !this.checked);
+        if (vgOpt) vgOpt.classList.toggle('opt-active', this.checked);
+      });
+    }
     document.getElementById('start-btn').addEventListener('click', () => this.start());
     document.getElementById('retry-btn').addEventListener('click', () => this.start());
 
