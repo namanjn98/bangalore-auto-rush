@@ -1398,6 +1398,7 @@ const Acid = {
       warning.classList.add('hidden');
       warning.classList.remove('visible-warn');
       document.body.classList.remove('acid-mode', 'van-gogh-mode');
+      if (Audio.acidActive) Audio.endAcid();
       return;
     }
     GS.acidCycleTimer += dt;
