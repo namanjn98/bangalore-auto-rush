@@ -1391,6 +1391,7 @@ const Acid = {
   update(dt) {
     if (!RunRules.shouldAllowSpecialEvents(GS.elapsed)) {
       GS.acidCycleTimer = 0;
+      GS.acidTimer = 0;
       GS.acidMode = false;
       this.intensity = 0;
       const warning = document.getElementById('acid-warning');
