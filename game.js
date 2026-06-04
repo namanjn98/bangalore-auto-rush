@@ -1878,13 +1878,6 @@ const Game = {
     }
     document.getElementById('start-btn').addEventListener('click', () => this.start());
     document.getElementById('retry-btn').addEventListener('click', () => this.start());
-
-    // touch support — on-screen buttons
-    const touchMap = { 'touch-jump': ()=>Player.jump(), 'touch-A': ()=>Horn.press(), 'touch-S': ()=>Horn.press(), 'touch-D': ()=>Horn.press(), 'touch-F': ()=>Horn.press() };
-    for (const [id, fn] of Object.entries(touchMap)) {
-      const el = document.getElementById(id);
-      if (el) { el.addEventListener('touchstart', e=>{ e.preventDefault(); if(GS.alive)fn(); }, {passive:false}); }
-    }
   }
 };
 
