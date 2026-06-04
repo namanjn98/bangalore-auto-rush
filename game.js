@@ -11,7 +11,30 @@ const JUMP_VEL = -13;
 const ACID_INTERVAL = 20000;
 const ACID_DURATION = 5000;
 const ZONE_DURATION = 30000;
+const FIRST_MINUTE_MS = 60000;
+const DOSA_BREAK_AT_MS = 95000;
 const SETTINGS = { animeMode: false, overlayStyle: 'acid' };
+
+const RunRules = {
+  getRunPhase(elapsed) {
+    if (elapsed < 10000) return 'jump_intro';
+    if (elapsed < 30000) return 'brake_intro';
+    if (elapsed < FIRST_MINUTE_MS) return 'mixed_intro';
+    return 'full_game';
+  },
+
+  shouldAllowSpecialEvents(elapsed) {
+    return elapsed >= FIRST_MINUTE_MS;
+  },
+
+  getObstacleWeightsForElapsed(elapsed, zoneWeights) {
+    const phase = this.getRunPhase(elapsed);
+    if (phase === 'jump_intro') return { pothole: 1 };
+    if (phase === 'brake_intro') return { pothole: 2, pedestrian: 1 };
+    if (phase === 'mixed_intro') return { pothole: 3, pedestrian: 2, traffic_cone: 1 };
+    return { ...zoneWeights };
+  }
+};
 
 // ─── GAME STATE ───────────────────────────────────────────────────────────────
 const GS = {
@@ -1840,4 +1863,14 @@ const Game = {
 };
 
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
+const AutoRajaTestHooks = {
+  getRunPhase: elapsed => RunRules.getRunPhase(elapsed),
+  getObstacleWeightsForElapsed: (elapsed, zoneWeights) => RunRules.getObstacleWeightsForElapsed(elapsed, zoneWeights),
+  shouldAllowSpecialEvents: elapsed => RunRules.shouldAllowSpecialEvents(elapsed)
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = AutoRajaTestHooks;
+}
+
 document.fonts.ready.then(() => Game.init());
