@@ -40,6 +40,15 @@ const RunRules = {
   }
 };
 
+const HornRules = {
+  CHARGE: { jump: 0.14, brake: 0.10, tap: 0.04 },
+
+  getHornChargeAfterAction(current, action) {
+    const amount = this.CHARGE[action] || 0;
+    return Math.min(1, Math.round((current + amount) * 100) / 100);
+  }
+};
+
 // ─── GAME STATE ───────────────────────────────────────────────────────────────
 const GS = {
   score: 0, distance: 0, speed: BASE_SPEED,
@@ -1070,7 +1079,7 @@ const Player = {
     if (this.grounded) {
       this.vy = JUMP_VEL; this.grounded = false; this.jumping = true;
       Audio.sfx('jump');
-      Horn.addCharge(0.25);
+      Horn.addActionCharge('jump');
     }
   },
 
@@ -1317,58 +1326,36 @@ const Obstacles = {
 };
 
 // ─── POWER BAR SYSTEM ────────────────────────────────────────────────────────
-// Bar fills from: jumps (+0.25), brakes (+0.12), ASDF presses (+0.07).
-// When full (≥1.0), pressing A/S/D/F fires that key's superpower directly.
 const Horn = {
-  VALID: ['A','S','D','F'],
-  KEY_POWER: { A:'monsoon_shield', S:'traffic_melt', D:'turbo_boost', F:'ghost_mode' },
-  POWER_DUR: { monsoon_shield:5000, traffic_melt:0, turbo_boost:3000, ghost_mode:4000 },
-
-  addCharge(amount) {
-    GS.hornBar = Math.min(1, GS.hornBar + amount);
+  addActionCharge(action) {
+    GS.hornBar = HornRules.getHornChargeAfterAction(GS.hornBar, action);
   },
 
-  press(key) {
-    if (!this.VALID.includes(key)) return;
-    Audio.horn(key);
-    const el = document.getElementById('note-'+key);
+  press() {
+    Audio.horn('A');
+    const el = document.getElementById('note-horn');
     if (el) { el.classList.add('pressed'); setTimeout(()=>el.classList.remove('pressed'), 90); }
     if (GS.hornBar >= 0.98 && !GS.activePower) {
-      this._trigger(this.KEY_POWER[key]);
+      this._triggerBlast();
     } else {
-      this.addCharge(0.07);
+      this.addActionCharge('tap');
     }
   },
 
-  _trigger(power) {
+  _triggerBlast() {
     Audio.sfx('combo');
-    GS.activePower = power;
-    GS.powerTimer = this.POWER_DUR[power] || 0;
     GS.hornBar = 0;
-    if (power === 'traffic_melt') {
-      Obstacles.clearAll();
-      GS.activePower = null;
-      Particles.boom(CW/2, CH/2, '#ff4444', 24);
-    }
-    const pi = document.getElementById('power-indicator');
-    const names = { monsoon_shield:'MONSOON SHIELD', turbo_boost:'TURBO BOOST!', ghost_mode:'GHOST MODE', traffic_melt:'TRAFFIC MELT!' };
-    if (power !== 'traffic_melt') {
-      pi.textContent = names[power] || power;
-      pi.classList.remove('hidden');
-    }
-    Audio.sfx('power');
+    Obstacles.clearAll();
+    Particles.boom(CW/2, CH/2, '#FFD700', 24);
     Particles.sparkle(Player.x+28, Player.y+10);
+    const pi = document.getElementById('power-indicator');
+    pi.textContent = 'HORN BLAST!';
+    pi.classList.remove('hidden');
+    setTimeout(() => pi.classList.add('hidden'), 900);
   },
 
   update(dt) {
-    GS.hornBar = Math.max(0, GS.hornBar - 0.0003);
-    if (GS.activePower && GS.powerTimer > 0) {
-      GS.powerTimer -= dt;
-      if (GS.powerTimer <= 0) {
-        GS.activePower = null; GS.powerTimer = 0;
-        document.getElementById('power-indicator').classList.add('hidden');
-      }
-    }
+    GS.hornBar = Math.max(0, GS.hornBar - 0.0002);
     document.getElementById('horn-bar-fill').style.width = (GS.hornBar * 100) + '%';
     document.getElementById('speed-value').textContent = GS.speed.toFixed(1);
     document.getElementById('score-value').textContent = GS.score;
@@ -1837,6 +1824,17 @@ const Game = {
     setTimeout(()=>banner.classList.add('hidden'), 2700);
   },
 
+  startBrake() {
+    if (!GS.alive || Player.braking) return;
+    Player.braking = true;
+    Audio.sfx('brake');
+    Horn.addActionCharge('brake');
+  },
+
+  stopBrake() {
+    Player.braking = false;
+  },
+
   bindInputs() {
     document.addEventListener('keydown', e => {
       if (this.keysDown.has(e.code)) return;
@@ -1845,16 +1843,13 @@ const Game = {
       if (!GS.alive) return;
 
       if (e.code==='Space'||e.code==='ArrowUp') { e.preventDefault(); Player.jump(); }
-      else if (e.code==='ArrowDown') { e.preventDefault(); Player.braking=true; Audio.sfx('brake'); Horn.addCharge(0.12); }
-      else if (e.code==='KeyA') Horn.press('A');
-      else if (e.code==='KeyS') Horn.press('S');
-      else if (e.code==='KeyD') Horn.press('D');
-      else if (e.code==='KeyF') Horn.press('F');
+      else if (e.code==='ArrowDown') { e.preventDefault(); this.startBrake(); }
+      else if (e.code==='KeyH'||e.code==='KeyA'||e.code==='KeyS'||e.code==='KeyD'||e.code==='KeyF') Horn.press();
     });
 
     document.addEventListener('keyup', e => {
       this.keysDown.delete(e.code);
-      if (e.code==='ArrowDown') Player.braking = false;
+      if (e.code==='ArrowDown') this.stopBrake();
     });
 
     document.addEventListener('visibilitychange', () => {
@@ -1874,7 +1869,7 @@ const Game = {
     document.getElementById('retry-btn').addEventListener('click', () => this.start());
 
     // touch support — on-screen buttons
-    const touchMap = { 'touch-jump': ()=>Player.jump(), 'touch-brake-down': ()=>{ Player.braking=true; Audio.sfx('brake'); }, 'touch-A': ()=>Horn.press('A'), 'touch-S': ()=>Horn.press('S'), 'touch-D': ()=>Horn.press('D'), 'touch-F': ()=>Horn.press('F') };
+    const touchMap = { 'touch-jump': ()=>Player.jump(), 'touch-brake-down': ()=>this.startBrake(), 'touch-A': ()=>Horn.press(), 'touch-S': ()=>Horn.press(), 'touch-D': ()=>Horn.press(), 'touch-F': ()=>Horn.press() };
     for (const [id, fn] of Object.entries(touchMap)) {
       const el = document.getElementById(id);
       if (el) { el.addEventListener('touchstart', e=>{ e.preventDefault(); if(GS.alive)fn(); }, {passive:false}); }
@@ -1887,7 +1882,8 @@ const AutoRajaTestHooks = {
   getRunPhase: elapsed => RunRules.getRunPhase(elapsed),
   getObstacleWeightsForElapsed: (elapsed, zoneWeights) => RunRules.getObstacleWeightsForElapsed(elapsed, zoneWeights),
   shouldAllowSpecialEvents: elapsed => RunRules.shouldAllowSpecialEvents(elapsed),
-  shouldAllowDoubleSpawn: elapsed => RunRules.shouldAllowDoubleSpawn(elapsed)
+  shouldAllowDoubleSpawn: elapsed => RunRules.shouldAllowDoubleSpawn(elapsed),
+  getHornChargeAfterAction: (current, action) => HornRules.getHornChargeAfterAction(current, action)
 };
 
 if (typeof module !== 'undefined' && module.exports) {

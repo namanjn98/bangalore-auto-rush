@@ -127,4 +127,10 @@ assert.equal(typeof hooks.shouldAllowDoubleSpawn, 'function');
 assert.equal(hooks.shouldAllowDoubleSpawn(59999), false);
 assert.equal(hooks.shouldAllowDoubleSpawn(60000), true);
 
+assert.equal(typeof hooks.getHornChargeAfterAction, 'function');
+assert.equal(hooks.getHornChargeAfterAction(0, 'jump'), 0.14);
+assert.equal(hooks.getHornChargeAfterAction(0.9, 'brake'), 1);
+assert.equal(hooks.getHornChargeAfterAction(0.2, 'tap'), 0.24);
+assert.equal(hooks.getHornChargeAfterAction(0.2, 'unknown'), 0.2);
+
 console.log('game-rules tests passed');
