@@ -133,4 +133,10 @@ assert.equal(hooks.getHornChargeAfterAction(0.9, 'brake'), 1);
 assert.equal(hooks.getHornChargeAfterAction(0.2, 'tap'), 0.24);
 assert.equal(hooks.getHornChargeAfterAction(0.2, 'unknown'), 0.2);
 
+assert.equal(typeof hooks.formatShareText, 'function');
+assert.equal(
+  hooks.formatShareText(2140, 3000, 'https://example.com/auto-raja'),
+  'I scored 2140 in Auto Raja: Bangalore Rush. Best on this phone: 3000. Beat me: https://example.com/auto-raja'
+);
+
 console.log('game-rules tests passed');

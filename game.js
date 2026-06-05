@@ -49,6 +49,34 @@ const HornRules = {
   }
 };
 
+const ScoreShare = {
+  BEST_KEY: 'auto-raja-best-score',
+
+  readBestScore() {
+    try {
+      const raw = window.localStorage && window.localStorage.getItem(this.BEST_KEY);
+      const parsed = Number.parseInt(raw || '0', 10);
+      return Number.isFinite(parsed) ? parsed : 0;
+    } catch (err) {
+      return 0;
+    }
+  },
+
+  saveBestScore(score) {
+    const best = Math.max(this.readBestScore(), score);
+    try {
+      if (window.localStorage) window.localStorage.setItem(this.BEST_KEY, String(best));
+    } catch (err) {
+      return best;
+    }
+    return best;
+  },
+
+  formatShareText(score, best, url) {
+    return `I scored ${score} in Auto Raja: Bangalore Rush. Best on this phone: ${best}. Beat me: ${url}`;
+  }
+};
+
 // ─── GAME STATE ───────────────────────────────────────────────────────────────
 const GS = {
   score: 0, distance: 0, speed: BASE_SPEED,
@@ -1811,12 +1839,33 @@ const Game = {
   showGameOver() {
     const msgs = [
       'Traffic got you bro.', 'Even Rajappa has limits.', 'The city wins today.',
-      'Try the horn combos next time!', 'Bangalore never sleeps... you just did.'
+      'Horn earlier next time.', 'Bangalore never sleeps... you just did.'
     ];
+    const best = ScoreShare.saveBestScore(GS.score);
     document.getElementById('final-score').textContent = GS.score;
+    document.getElementById('best-score').textContent = best;
     document.getElementById('gameover-msg').textContent = msgs[GS.score%msgs.length];
+    document.getElementById('share-status').textContent = '';
     document.getElementById('gameover-screen').classList.remove('hidden');
     document.body.classList.remove('acid-mode', 'van-gogh-mode', 'game-active');
+  },
+
+  async shareScore() {
+    const best = ScoreShare.readBestScore();
+    const url = window.location && window.location.href ? window.location.href : 'https://example.com';
+    const text = ScoreShare.formatShareText(GS.score, best, url);
+    const status = document.getElementById('share-status');
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Auto Raja: Bangalore Rush', text, url });
+        status.textContent = 'Shared.';
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      status.textContent = 'Score copied.';
+    } catch (err) {
+      status.textContent = text;
+    }
   },
 
   showZoneBanner() {
@@ -1836,6 +1885,39 @@ const Game = {
 
   stopBrake() {
     Player.braking = false;
+  },
+
+  bindPressButton(id, onPress) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (!GS.alive) return;
+      el.classList.add('is-pressed');
+      onPress();
+    });
+    el.addEventListener('pointerup', () => el.classList.remove('is-pressed'));
+    el.addEventListener('pointercancel', () => el.classList.remove('is-pressed'));
+    el.addEventListener('pointerleave', () => el.classList.remove('is-pressed'));
+  },
+
+  bindHoldButton(id, onDown, onUp) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const release = e => {
+      if (e) e.preventDefault();
+      el.classList.remove('is-pressed');
+      onUp();
+    };
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (!GS.alive) return;
+      el.classList.add('is-pressed');
+      onDown();
+    });
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('pointerleave', release);
   },
 
   bindInputs() {
@@ -1878,6 +1960,12 @@ const Game = {
     }
     document.getElementById('start-btn').addEventListener('click', () => this.start());
     document.getElementById('retry-btn').addEventListener('click', () => this.start());
+    document.getElementById('note-horn').addEventListener('click', () => { if (GS.alive) Horn.press(); });
+    document.getElementById('share-btn').addEventListener('click', () => this.shareScore());
+
+    this.bindPressButton('touch-jump', () => Player.jump());
+    this.bindPressButton('touch-horn', () => Horn.press());
+    this.bindHoldButton('touch-brake', () => this.startBrake(), () => this.stopBrake());
   }
 };
 
@@ -1887,7 +1975,8 @@ const AutoRajaTestHooks = {
   getObstacleWeightsForElapsed: (elapsed, zoneWeights) => RunRules.getObstacleWeightsForElapsed(elapsed, zoneWeights),
   shouldAllowSpecialEvents: elapsed => RunRules.shouldAllowSpecialEvents(elapsed),
   shouldAllowDoubleSpawn: elapsed => RunRules.shouldAllowDoubleSpawn(elapsed),
-  getHornChargeAfterAction: (current, action) => HornRules.getHornChargeAfterAction(current, action)
+  getHornChargeAfterAction: (current, action) => HornRules.getHornChargeAfterAction(current, action),
+  formatShareText: (score, best, url) => ScoreShare.formatShareText(score, best, url)
 };
 
 if (typeof module !== 'undefined' && module.exports) {
