@@ -4,14 +4,137 @@
 const CW = 800, CH = 380;
 const GROUND_Y = 300;
 const PLAYER_X = 110;
-const BASE_SPEED = 11;
-const MAX_SPEED = 15;
+const BASE_SPEED = 4.4;
+const MAX_SPEED = 7.2;
+const SPEED_RAMP_DISTANCE = 42000;
+const BRAKE_SLOW_FACTOR = 0.55;
 const GRAVITY = 0.55;
 const JUMP_VEL = -13;
 const ACID_INTERVAL = 20000;
 const ACID_DURATION = 5000;
 const ZONE_DURATION = 30000;
+const FIRST_MINUTE_MS = 60000;
+const FIRST_SPAWN_DELAY_MS = 6000;
+const DOSA_BREAK_AT_MS = 95000;
 const SETTINGS = { animeMode: false, overlayStyle: 'acid' };
+
+const RunRules = {
+  getRunPhase(elapsed) {
+    if (elapsed < 10000) return 'jump_intro';
+    if (elapsed < 30000) return 'brake_intro';
+    if (elapsed < FIRST_MINUTE_MS) return 'mixed_intro';
+    return 'full_game';
+  },
+
+  shouldAllowSpecialEvents(elapsed) {
+    return elapsed >= FIRST_MINUTE_MS;
+  },
+
+  shouldAllowDoubleSpawn(elapsed) {
+    return elapsed >= FIRST_MINUTE_MS;
+  },
+
+  getObstacleWeightsForElapsed(elapsed, zoneWeights) {
+    const phase = this.getRunPhase(elapsed);
+    if (phase === 'jump_intro') return { pothole: 1 };
+    if (phase === 'brake_intro') return { pothole: 2, dog: 1 };
+    if (phase === 'mixed_intro') return { pothole: 3, dog: 2, traffic_cone: 1 };
+    return { ...zoneWeights };
+  },
+
+  getSpeedForDistance(distance) {
+    return Math.min(MAX_SPEED, BASE_SPEED + distance / SPEED_RAMP_DISTANCE);
+  },
+
+  getRouteProgress(elapsed, zone) {
+    if (!this.shouldAllowSpecialEvents(elapsed)) {
+      return Math.min(0.2, (elapsed / FIRST_MINUTE_MS) * 0.2);
+    }
+    const routeElapsed = elapsed - FIRST_MINUTE_MS;
+    const routeDuration = ZONE_DURATION * 5;
+    const loopProgress = (routeElapsed % routeDuration) / routeDuration;
+    return Math.max(zone / 5, loopProgress);
+  }
+};
+
+const RouteMap = {
+  update(elapsed, zone) {
+    const marker = document.getElementById('route-marker');
+    if (!marker) return;
+    const progress = RunRules.getRouteProgress(elapsed, zone);
+    marker.style.left = `${Math.round(progress * 1000) / 10}%`;
+  },
+
+  reset() {
+    this.update(0, 0);
+  }
+};
+
+const PowerRules = {
+  DEFS: {
+    brake: { fillMs: 5000, activeMs: 3000 },
+    horn: { fillMs: 8000, activeMs: 3000, blasts: 3, blastEveryMs: 1000 },
+    lights: { fillMs: 11000, activeMs: 5000 }
+  },
+
+  getPowerFillAfterElapsed(power, elapsedMs) {
+    const def = this.DEFS[power];
+    if (!def) return 0;
+    return Math.min(1, Math.round((elapsedMs / def.fillMs) * 1000) / 1000);
+  },
+
+  createInitialPowerState() {
+    return {
+      brake: this._emptyPower(),
+      horn: this._emptyPower(),
+      lights: this._emptyPower()
+    };
+  },
+
+  _emptyPower() {
+    return { fill: 0, active: false, remainingMs: 0, blastCount: 0, nextBlastMs: 0 };
+  },
+
+  activatePowerState(power) {
+    const def = this.DEFS[power];
+    if (!def) return this._emptyPower();
+    return {
+      fill: 0,
+      active: true,
+      remainingMs: def.activeMs,
+      blastCount: def.blasts || 0,
+      nextBlastMs: 0
+    };
+  }
+};
+
+const ScoreShare = {
+  BEST_KEY: 'auto-raja-best-score',
+
+  readBestScore() {
+    try {
+      const raw = window.localStorage && window.localStorage.getItem(this.BEST_KEY);
+      const parsed = Number.parseInt(raw || '0', 10);
+      return Number.isFinite(parsed) ? parsed : 0;
+    } catch (err) {
+      return 0;
+    }
+  },
+
+  saveBestScore(score) {
+    const best = Math.max(this.readBestScore(), score);
+    try {
+      if (window.localStorage) window.localStorage.setItem(this.BEST_KEY, String(best));
+    } catch (err) {
+      return best;
+    }
+    return best;
+  },
+
+  formatShareText(score, best, url) {
+    return `I scored ${score} in Auto Raja: Bangalore Rush. Best on this phone: ${best}. Beat me: ${url}`;
+  }
+};
 
 // ─── GAME STATE ───────────────────────────────────────────────────────────────
 const GS = {
@@ -20,8 +143,7 @@ const GS = {
   lastTime: 0, dt: 0, elapsed: 0,
   zone: 0, zoneTimer: 0,
   acidTimer: 0, acidMode: false, acidCycleTimer: 0,
-  hornBar: 0,
-  activePower: null, powerTimer: 0,
+  powers: PowerRules.createInitialPowerState(),
   frameCount: 0,
   dosaBreak: false, dosaBreakDone: false,
   reset() {
@@ -30,7 +152,7 @@ const GS = {
     this.lastTime = 0; this.elapsed = 0;
     this.zone = 0; this.zoneTimer = 0;
     this.acidTimer = 0; this.acidMode = false; this.acidCycleTimer = 0;
-    this.hornBar = 0; this.activePower = null; this.powerTimer = 0;
+    this.powers = PowerRules.createInitialPowerState();
     this.frameCount = 0;
     this.dosaBreak = false; this.dosaBreakDone = false;
   }
@@ -1026,7 +1148,7 @@ const Player = {
     }
 
     this.wheelRot += GS.speed * 0.12;
-    if (GS.activePower) { this.invincible = true; }
+    if (Powers.isActive('lights')) { this.invincible = true; }
     else { this.invincible = false; }
 
     // exhaust puffs
@@ -1043,7 +1165,6 @@ const Player = {
     if (this.grounded) {
       this.vy = JUMP_VEL; this.grounded = false; this.jumping = true;
       Audio.sfx('jump');
-      Horn.addCharge(0.25);
     }
   },
 
@@ -1063,8 +1184,7 @@ const Player = {
 
     // invincible glow
     if (this.invincible) {
-      const powerColors = { turbo_boost:'#ff8800', ghost_mode:'#00ffff', monsoon_shield:'#4488ff', traffic_melt:'#ff4444' };
-      ctx.strokeStyle = powerColors[GS.activePower] || '#fff';
+      ctx.strokeStyle = GS.frameCount % 10 < 5 ? '#FFD700' : '#ffffff';
       ctx.lineWidth = 3;
       ctx.strokeRect(x-3, y-3, 62, 50);
     }
@@ -1156,24 +1276,24 @@ const Player = {
 const Obstacles = {
   list: [],
   spawnTimer: 0,
-  spawnInterval: 1800,
+  spawnInterval: 2800,
   lastAction: null,
 
   TYPES: {
     pothole:    { action:'jump',  w:42,  h:18, drawFn:'drawPothole',   yOff:0 },
     garbage:    { action:'jump',  w:48,  h:34, drawFn:'drawGarbage',   yOff:0 },
     dog:        { action:'jump',  w:48,  h:26, drawFn:'drawDog',       yOff:0 },
-    pedestrian: { action:'brake', w:36,  h:58, drawFn:'drawPedestrian',yOff:-18 },
-    police:     { action:'brake', w:40,  h:58, drawFn:'drawPolice',    yOff:-18 },
-    drunkard:   { action:'brake', w:42,  h:58, drawFn:'drawDrunkard',  yOff:-18 },
-    shopper:    { action:'brake', w:36,  h:58, drawFn:'drawShopper',   yOff:-18 },
-    bbmp:       { action:'brake', w:82,  h:52, drawFn:'drawBBMP',      yOff:-12 },
-    itpro:      { action:'brake', w:38,  h:58, drawFn:'drawITPro',     yOff:-18 },
-    it_bus:       { action:'super', w:112, h:52, drawFn:'drawITBus',       yOff:-12 },
+    pedestrian: { action:'jump', w:36,  h:58, drawFn:'drawPedestrian',yOff:0 },
+    police:     { action:'jump', w:40,  h:58, drawFn:'drawPolice',    yOff:0 },
+    drunkard:   { action:'jump', w:42,  h:58, drawFn:'drawDrunkard',  yOff:0 },
+    shopper:    { action:'jump', w:36,  h:58, drawFn:'drawShopper',   yOff:0 },
+    bbmp:       { action:'jump', w:82,  h:52, drawFn:'drawBBMP',      yOff:0 },
+    itpro:      { action:'jump', w:38,  h:58, drawFn:'drawITPro',     yOff:0 },
+    it_bus:       { action:'super', w:112, h:52, drawFn:'drawITBus',       yOff:0 },
     flood:        { action:'super', w:66,  h:CH, drawFn:'drawFlood',       yOff:0, fullH:true },
     traffic_cone: { action:'jump',  w:18,  h:24, drawFn:'drawTrafficCone', yOff:0 },
     speed_bump:   { action:'jump',  w:62,  h:12, drawFn:'drawSpeedBump',   yOff:0 },
-    hawker:       { action:'brake', w:54,  h:62, drawFn:'drawHawker',      yOff:-20 },
+    hawker:       { action:'jump',  w:54,  h:62, drawFn:'drawHawker',      yOff:0 },
     monkey:       { action:'jump',  w:40,  h:32, drawFn:'drawMonkey',      yOff:0 },
   },
 
@@ -1194,10 +1314,12 @@ const Obstacles = {
   },
 
   spawn() {
-    let weights = {...this.ZONE_W[GS.zone]};
-    if (GS.hornBar < 0.3) { delete weights.it_bus; delete weights.flood; }
-    // don't stack same action type too close
-    if (this.lastAction === 'jump') delete weights.pothole, delete weights.dog, delete weights.garbage;
+    let weights = RunRules.getObstacleWeightsForElapsed(GS.elapsed, this.ZONE_W[GS.zone]);
+    if (RunRules.getRunPhase(GS.elapsed) === 'full_game' && this.lastAction === 'jump') {
+      delete weights.pothole;
+      delete weights.dog;
+      delete weights.garbage;
+    }
     const type = this._wRand(weights);
     const def = this.TYPES[type];
     const gy = def.fullH ? 0 : GROUND_Y - def.h + (def.yOff||0);
@@ -1212,14 +1334,16 @@ const Obstacles = {
 
   update(dt) {
     this.spawnTimer += dt;
-    const interval = Math.max(1000, this.spawnInterval - (GS.speed - BASE_SPEED) * 120);
+    const interval = Math.max(1800, this.spawnInterval - (GS.speed - BASE_SPEED) * 90);
     if (this.spawnTimer >= interval) {
       this.spawnTimer = 0;
       this.spawn();
-      if (Math.random() < 0.18) setTimeout(() => { if (GS.alive) this.spawn(); }, 1000);
+      if (RunRules.shouldAllowDoubleSpawn(GS.elapsed) && Math.random() < 0.18) {
+        setTimeout(() => { if (GS.alive) this.spawn(); }, 1000);
+      }
     }
     for (const obs of this.list) {
-      obs.x -= GS.speed * (GS.activePower==='turbo_boost' ? 1.8 : 1);
+      obs.x -= Game.getScrollSpeed();
       obs.frameCount++;
       // warning for super obstacles
       if (!obs.warnShown && obs.action==='super' && obs.x < PLAYER_X + 380) {
@@ -1239,13 +1363,8 @@ const Obstacles = {
       if (!hit) continue;
       if (obs.action==='jump') {
         if (!Player.jumping && Player.grounded) { Game.die(); return; }
-      } else if (obs.action==='brake') {
-        if (!Player.braking) { Game.die(); return; }
-        else { obs.alive=false; Particles.boom(obs.x+obs.w/2, obs.y+obs.h/2, '#FFD700', 10); }
+        obs.alive = false;
       } else if (obs.action==='super') {
-        if (GS.activePower==='ghost_mode'||GS.activePower==='turbo_boost') { obs.alive=false; return; }
-        if (obs.type==='flood'&&GS.activePower==='monsoon_shield') { obs.alive=false; return; }
-        if (obs.type==='it_bus'&&GS.activePower==='traffic_melt') { obs.alive=false; return; }
         Game.die(); return;
       }
     }
@@ -1274,9 +1393,6 @@ const Obstacles = {
         if (obs.action === 'jump') {
           ctx.fillStyle = blink ? '#00ffff' : '#007788';
           ctx.fillText('↑ JUMP', cx, cy);
-        } else {
-          ctx.fillStyle = blink ? '#ff8800' : '#884400';
-          ctx.fillText('↓ BRAKE', cx, cy);
         }
         ctx.restore();
       }
@@ -1284,62 +1400,98 @@ const Obstacles = {
   }
 };
 
-// ─── POWER BAR SYSTEM ────────────────────────────────────────────────────────
-// Bar fills from: jumps (+0.25), brakes (+0.12), ASDF presses (+0.07).
-// When full (≥1.0), pressing A/S/D/F fires that key's superpower directly.
-const Horn = {
-  VALID: ['A','S','D','F'],
-  KEY_POWER: { A:'monsoon_shield', S:'traffic_melt', D:'turbo_boost', F:'ghost_mode' },
-  POWER_DUR: { monsoon_shield:5000, traffic_melt:0, turbo_boost:3000, ghost_mode:4000 },
+// ─── TIMED POWER SYSTEM ──────────────────────────────────────────────────────
+const Powers = {
+  order: ['brake', 'horn', 'lights'],
 
-  addCharge(amount) {
-    GS.hornBar = Math.min(1, GS.hornBar + amount);
+  isActive(power) {
+    return !!(GS.powers[power] && GS.powers[power].active);
   },
 
-  press(key) {
-    if (!this.VALID.includes(key)) return;
-    Audio.horn(key);
-    const el = document.getElementById('note-'+key);
-    if (el) { el.classList.add('pressed'); setTimeout(()=>el.classList.remove('pressed'), 90); }
-    if (GS.hornBar >= 0.98 && !GS.activePower) {
-      this._trigger(this.KEY_POWER[key]);
-    } else {
-      this.addCharge(0.07);
+  press(power) {
+    const state = GS.powers[power];
+    if (!GS.alive || !state || state.fill < 1 || state.active) return;
+    GS.powers[power] = PowerRules.activatePowerState(power);
+    if (power === 'horn') {
+      this._blast();
+      GS.powers.horn.nextBlastMs = PowerRules.DEFS.horn.blastEveryMs;
+    } else if (power === 'brake') {
+      Player.braking = true;
+      Audio.sfx('brake');
+      this._showIndicator('SLOW 3');
+    } else if (power === 'lights') {
+      Audio.sfx('combo');
+      this._showIndicator('LIGHTS 5');
     }
+    this._pulseButton(power);
   },
 
-  _trigger(power) {
+  _blast() {
+    Audio.horn('A');
     Audio.sfx('combo');
-    GS.activePower = power;
-    GS.powerTimer = this.POWER_DUR[power] || 0;
-    GS.hornBar = 0;
-    if (power === 'traffic_melt') {
-      Obstacles.clearAll();
-      GS.activePower = null;
-      Particles.boom(CW/2, CH/2, '#ff4444', 24);
-    }
-    const pi = document.getElementById('power-indicator');
-    const names = { monsoon_shield:'MONSOON SHIELD', turbo_boost:'TURBO BOOST!', ghost_mode:'GHOST MODE', traffic_melt:'TRAFFIC MELT!' };
-    if (power !== 'traffic_melt') {
-      pi.textContent = names[power] || power;
-      pi.classList.remove('hidden');
-    }
-    Audio.sfx('power');
+    Obstacles.clearAll();
+    Particles.boom(CW/2, CH/2, '#FFD700', 24);
     Particles.sparkle(Player.x+28, Player.y+10);
+    this._showIndicator('HORN BLAST');
+  },
+
+  _showIndicator(text) {
+    const pi = document.getElementById('power-indicator');
+    if (!pi) return;
+    pi.textContent = text;
+    pi.classList.remove('hidden');
+  },
+
+  _pulseButton(power) {
+    const el = document.getElementById(`touch-${power}`) || document.getElementById('note-horn');
+    if (!el) return;
+    el.classList.add('pressed', 'is-pressed');
+    setTimeout(() => el.classList.remove('pressed', 'is-pressed'), 120);
   },
 
   update(dt) {
-    GS.hornBar = Math.max(0, GS.hornBar - 0.0003);
-    if (GS.activePower && GS.powerTimer > 0) {
-      GS.powerTimer -= dt;
-      if (GS.powerTimer <= 0) {
-        GS.activePower = null; GS.powerTimer = 0;
-        document.getElementById('power-indicator').classList.add('hidden');
+    for (const power of this.order) {
+      const state = GS.powers[power];
+      const def = PowerRules.DEFS[power];
+      if (!state.active) {
+        state.fill = Math.min(1, state.fill + dt / def.fillMs);
+      } else {
+        state.remainingMs = Math.max(0, state.remainingMs - dt);
+        if (power === 'horn') {
+          state.nextBlastMs -= dt;
+          if (state.blastCount > 1 && state.nextBlastMs <= 0 && state.remainingMs > 0) {
+            state.blastCount--;
+            state.nextBlastMs += def.blastEveryMs;
+            this._blast();
+          }
+        }
+        if (state.remainingMs <= 0) {
+          state.active = false;
+          state.blastCount = 0;
+          state.nextBlastMs = 0;
+          if (power === 'brake') Player.braking = false;
+        }
       }
+      this._renderButton(power, state);
     }
-    document.getElementById('horn-bar-fill').style.width = (GS.hornBar * 100) + '%';
-    document.getElementById('speed-value').textContent = GS.speed.toFixed(1);
+    const pi = document.getElementById('power-indicator');
+    if (pi && !this.order.some(power => GS.powers[power].active)) pi.classList.add('hidden');
+    document.getElementById('speed-value').textContent = Game.getScrollSpeed().toFixed(1);
     document.getElementById('score-value').textContent = GS.score;
+  },
+
+  _renderButton(power, state) {
+    const btn = document.getElementById(`touch-${power}`) || (power === 'horn' ? document.getElementById('note-horn') : null);
+    if (!btn) return;
+    const fill = btn.querySelector && btn.querySelector('.power-fill');
+    if (fill) fill.style.width = `${Math.round(state.fill * 100)}%`;
+    btn.classList.toggle('power-ready', state.fill >= 1 && !state.active);
+    btn.classList.toggle('power-active', state.active);
+    const count = btn.querySelector && btn.querySelector('.power-countdown, .power-count');
+    if (!count) return;
+    if (state.active && power === 'horn') count.textContent = String(Math.max(1, state.blastCount));
+    else if (state.active) count.textContent = String(Math.ceil(state.remainingMs / 1000));
+    else count.textContent = state.fill >= 1 ? 'READY' : `${Math.round(state.fill * 100)}%`;
   }
 };
 
@@ -1357,6 +1509,18 @@ const Acid = {
   },
 
   update(dt) {
+    if (!RunRules.shouldAllowSpecialEvents(GS.elapsed)) {
+      GS.acidCycleTimer = 0;
+      GS.acidTimer = 0;
+      GS.acidMode = false;
+      this.intensity = 0;
+      const warning = document.getElementById('acid-warning');
+      warning.classList.add('hidden');
+      warning.classList.remove('visible-warn');
+      document.body.classList.remove('acid-mode', 'van-gogh-mode');
+      if (Audio.acidActive) Audio.endAcid();
+      return;
+    }
     GS.acidCycleTimer += dt;
     this.waveT += dt * 0.003;
 
@@ -1666,7 +1830,7 @@ const Game = {
 
   start() {
     GS.reset();
-    Obstacles.list = []; Obstacles.spawnTimer = 0; Obstacles.lastAction = null;
+    Obstacles.list = []; Obstacles.spawnTimer = -FIRST_SPAWN_DELAY_MS; Obstacles.lastAction = null;
     Particles.list = []; Particles.rain = [];
     Player.x=PLAYER_X; Player.y=GROUND_Y-42; Player.vy=0; Player.grounded=true;
     Player.jumping=false; Player.braking=false; Player.exhaust=[];
@@ -1675,10 +1839,14 @@ const Game = {
     document.getElementById('gameover-screen').classList.add('hidden');
     document.getElementById('power-indicator').classList.add('hidden');
     document.getElementById('acid-warning').classList.add('hidden');
-    SETTINGS.animeMode = document.getElementById('toggle-anime').checked;
-    SETTINGS.overlayStyle = document.getElementById('toggle-overlay').checked ? 'vangogh' : 'acid';
+    const animeToggle = document.getElementById('toggle-anime');
+    const overlayToggle = document.getElementById('toggle-overlay');
+    SETTINGS.animeMode = !!(animeToggle && animeToggle.checked);
+    SETTINGS.overlayStyle = overlayToggle && overlayToggle.checked ? 'vangogh' : 'acid';
     document.body.classList.remove('acid-mode', 'van-gogh-mode');
+    document.body.classList.add('game-active');
     document.body.classList.toggle('anime-mode', SETTINGS.animeMode);
+    RouteMap.reset();
     Audio._init();
     Audio.startMusic();
     Audio.setRain(0);
@@ -1693,8 +1861,7 @@ const Game = {
     GS.elapsed += GS.dt;
     GS.frameCount++;
 
-    // dosa break at 60s
-    if (GS.alive && !GS.dosaBreakDone && !GS.dosaBreak && GS.elapsed >= 60000) {
+    if (GS.alive && !GS.dosaBreakDone && !GS.dosaBreak && GS.elapsed >= DOSA_BREAK_AT_MS) {
       DosaBreak.start();
     }
     if (GS.dosaBreak) {
@@ -1707,21 +1874,21 @@ const Game = {
     if (!GS.paused && GS.alive) {
       GS.distance += GS.speed;
       GS.score = Math.floor(GS.distance / 8);
-      GS.speed = Math.min(MAX_SPEED, BASE_SPEED + GS.distance / 9000);
+      GS.speed = RunRules.getSpeedForDistance(GS.distance);
 
-      // zone cycling
-      GS.zoneTimer += GS.dt;
-      if (GS.zoneTimer >= ZONE_DURATION) {
+      if (RunRules.shouldAllowSpecialEvents(GS.elapsed)) {
+        GS.zoneTimer += GS.dt;
+        if (GS.zoneTimer >= ZONE_DURATION) {
+          GS.zoneTimer = 0;
+          GS.zone = (GS.zone + 1) % 5;
+          this.showZoneBanner();
+          Audio.changeZone(GS.zone);
+          Audio.sfx('zoneChange');
+          Audio.setRain(GS.zone <= 1 ? 0.6 : 0.1);
+          GS.lastTime = performance.now();
+        }
+      } else {
         GS.zoneTimer = 0;
-        const prev = GS.zone;
-        GS.zone = (GS.zone + 1) % 5;
-        this.showZoneBanner();
-        Audio.changeZone(GS.zone);
-        Audio.sfx('zoneChange');
-        // rain in park / MG road zones
-        Audio.setRain(GS.zone <= 1 ? 0.6 : 0.1);
-        // reset lastTime so audio/DOM work in this frame doesn't inflate next dt
-        GS.lastTime = performance.now();
       }
 
       BG.update(GS.dt);
@@ -1729,8 +1896,9 @@ const Game = {
       Player.update(GS.dt);
       Obstacles.update(GS.dt);
       Obstacles.checkCollisions();
-      Horn.update(GS.dt);
+      Powers.update(GS.dt);
       Particles.update(GS.dt);
+      RouteMap.update(GS.elapsed, GS.zone);
 
       if (GS.zone <= 1) Particles.addRain(GS.zone);
     }
@@ -1778,12 +1946,33 @@ const Game = {
   showGameOver() {
     const msgs = [
       'Traffic got you bro.', 'Even Rajappa has limits.', 'The city wins today.',
-      'Try the horn combos next time!', 'Bangalore never sleeps... you just did.'
+      'Horn earlier next time.', 'Bangalore never sleeps... you just did.'
     ];
+    const best = ScoreShare.saveBestScore(GS.score);
     document.getElementById('final-score').textContent = GS.score;
+    document.getElementById('best-score').textContent = best;
     document.getElementById('gameover-msg').textContent = msgs[GS.score%msgs.length];
+    document.getElementById('share-status').textContent = '';
     document.getElementById('gameover-screen').classList.remove('hidden');
-    document.body.classList.remove('acid-mode', 'van-gogh-mode');
+    document.body.classList.remove('acid-mode', 'van-gogh-mode', 'game-active');
+  },
+
+  async shareScore() {
+    const best = ScoreShare.readBestScore();
+    const url = window.location && window.location.href ? window.location.href : 'https://example.com';
+    const text = ScoreShare.formatShareText(GS.score, best, url);
+    const status = document.getElementById('share-status');
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Auto Raja: Bangalore Rush', text, url });
+        status.textContent = 'Shared.';
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      status.textContent = 'Score copied.';
+    } catch (err) {
+      status.textContent = text;
+    }
   },
 
   showZoneBanner() {
@@ -1794,6 +1983,68 @@ const Game = {
     setTimeout(()=>banner.classList.add('hidden'), 2700);
   },
 
+  getScrollSpeed() {
+    return GS.speed * (Powers.isActive('brake') ? BRAKE_SLOW_FACTOR : 1);
+  },
+
+  startBrake() {
+    Powers.press('brake');
+  },
+
+  stopBrake() {
+    if (!Powers.isActive('brake')) Player.braking = false;
+  },
+
+  bindPressButton(id, onPress) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (!GS.alive) return;
+      el.classList.add('is-pressed');
+      onPress();
+    });
+    el.addEventListener('pointerup', () => el.classList.remove('is-pressed'));
+    el.addEventListener('pointercancel', () => el.classList.remove('is-pressed'));
+    el.addEventListener('pointerleave', () => el.classList.remove('is-pressed'));
+  },
+
+  bindHoldButton(id, onDown, onUp) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let activePointerId = null;
+    const releasePointerCapture = pointerId => {
+      if (!el.releasePointerCapture) return;
+      try {
+        if (!el.hasPointerCapture || el.hasPointerCapture(pointerId)) {
+          el.releasePointerCapture(pointerId);
+        }
+      } catch (err) {}
+    };
+    const release = e => {
+      if (e) e.preventDefault();
+      if (!e || e.pointerId !== activePointerId) return;
+      releasePointerCapture(activePointerId);
+      activePointerId = null;
+      el.classList.remove('is-pressed');
+      onUp();
+    };
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (!GS.alive || activePointerId !== null) return;
+      activePointerId = e.pointerId;
+      if (el.setPointerCapture) {
+        try {
+          el.setPointerCapture(activePointerId);
+        } catch (err) {}
+      }
+      el.classList.add('is-pressed');
+      onDown();
+    });
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+  },
+
   bindInputs() {
     document.addEventListener('keydown', e => {
       if (this.keysDown.has(e.code)) return;
@@ -1802,42 +2053,76 @@ const Game = {
       if (!GS.alive) return;
 
       if (e.code==='Space'||e.code==='ArrowUp') { e.preventDefault(); Player.jump(); }
-      else if (e.code==='ArrowDown') { e.preventDefault(); Player.braking=true; Audio.sfx('brake'); Horn.addCharge(0.12); }
-      else if (e.code==='KeyA') Horn.press('A');
-      else if (e.code==='KeyS') Horn.press('S');
-      else if (e.code==='KeyD') Horn.press('D');
-      else if (e.code==='KeyF') Horn.press('F');
+      else if (e.code==='ArrowDown') { e.preventDefault(); this.startBrake(); }
+      else if (e.code==='KeyH') Powers.press('horn');
+      else if (e.code==='KeyL') Powers.press('lights');
     });
 
     document.addEventListener('keyup', e => {
       this.keysDown.delete(e.code);
-      if (e.code==='ArrowDown') Player.braking = false;
+      if (e.code==='ArrowDown') this.stopBrake();
     });
 
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && GS.lastTime) GS.lastTime = performance.now();
     });
 
-    document.getElementById('toggle-anime').addEventListener('change', function() {
-      SETTINGS.animeMode = this.checked;
-      document.body.classList.toggle('anime-mode', this.checked);
-    });
-    document.getElementById('toggle-overlay').addEventListener('change', function() {
-      SETTINGS.overlayStyle = this.checked ? 'vangogh' : 'acid';
-      document.getElementById('opt-acid').classList.toggle('opt-active', !this.checked);
-      document.getElementById('opt-vg').classList.toggle('opt-active', this.checked);
-    });
+    const animeToggle = document.getElementById('toggle-anime');
+    if (animeToggle) {
+      animeToggle.addEventListener('change', function() {
+        SETTINGS.animeMode = this.checked;
+        document.body.classList.toggle('anime-mode', this.checked);
+      });
+    }
+    const overlayToggle = document.getElementById('toggle-overlay');
+    if (overlayToggle) {
+      overlayToggle.addEventListener('change', function() {
+        SETTINGS.overlayStyle = this.checked ? 'vangogh' : 'acid';
+        const acidOpt = document.getElementById('opt-acid');
+        const vgOpt = document.getElementById('opt-vg');
+        if (acidOpt) acidOpt.classList.toggle('opt-active', !this.checked);
+        if (vgOpt) vgOpt.classList.toggle('opt-active', this.checked);
+      });
+    }
     document.getElementById('start-btn').addEventListener('click', () => this.start());
     document.getElementById('retry-btn').addEventListener('click', () => this.start());
+    const noteHorn = document.getElementById('note-horn');
+    if (noteHorn) noteHorn.addEventListener('click', () => Powers.press('horn'));
+    document.getElementById('share-btn').addEventListener('click', () => this.shareScore());
 
-    // touch support — on-screen buttons
-    const touchMap = { 'touch-jump': ()=>Player.jump(), 'touch-brake-down': ()=>{ Player.braking=true; Audio.sfx('brake'); }, 'touch-A': ()=>Horn.press('A'), 'touch-S': ()=>Horn.press('S'), 'touch-D': ()=>Horn.press('D'), 'touch-F': ()=>Horn.press('F') };
-    for (const [id, fn] of Object.entries(touchMap)) {
-      const el = document.getElementById(id);
-      if (el) { el.addEventListener('touchstart', e=>{ e.preventDefault(); if(GS.alive)fn(); }, {passive:false}); }
-    }
+    this.bindPressButton('touch-jump', () => Player.jump());
+    this.bindPressButton('touch-brake', () => Powers.press('brake'));
+    this.bindPressButton('touch-horn', () => Powers.press('horn'));
+    this.bindPressButton('touch-lights', () => Powers.press('lights'));
   }
 };
 
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
+const AutoRajaTestHooks = {
+  getRunPhase: elapsed => RunRules.getRunPhase(elapsed),
+  getObstacleWeightsForElapsed: (elapsed, zoneWeights) => RunRules.getObstacleWeightsForElapsed(elapsed, zoneWeights),
+  shouldAllowSpecialEvents: elapsed => RunRules.shouldAllowSpecialEvents(elapsed),
+  shouldAllowDoubleSpawn: elapsed => RunRules.shouldAllowDoubleSpawn(elapsed),
+  getPowerFillAfterElapsed: (power, elapsedMs) => PowerRules.getPowerFillAfterElapsed(power, elapsedMs),
+  createInitialPowerState: () => PowerRules.createInitialPowerState(),
+  activatePowerState: power => PowerRules.activatePowerState(power),
+  getSpeedForDistance: distance => RunRules.getSpeedForDistance(distance),
+  getRouteProgress: (elapsed, zone) => RunRules.getRouteProgress(elapsed, zone),
+  getObstacleSpawnY: type => {
+    const def = Obstacles.TYPES[type];
+    if (!def) return null;
+    return def.fullH ? 0 : GROUND_Y - def.h + (def.yOff || 0);
+  },
+  getNormalObstacleActions: () => Object.fromEntries(
+    Object.entries(Obstacles.TYPES)
+      .filter(([, def]) => def.action !== 'super')
+      .map(([type, def]) => [type, def.action])
+  ),
+  formatShareText: (score, best, url) => ScoreShare.formatShareText(score, best, url)
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = AutoRajaTestHooks;
+}
+
 document.fonts.ready.then(() => Game.init());

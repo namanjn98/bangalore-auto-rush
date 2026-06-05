@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0a0a1a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Auto Raja">
   <title>Auto Raja: Bangalore Rush</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
@@ -10,6 +13,15 @@
 </head>
 <body>
   <div id="game-wrapper">
+    <div id="route-map" aria-label="Route progress">
+      <div class="route-segment">CUBBON</div>
+      <div class="route-segment">MG RD</div>
+      <div class="route-segment">KORA</div>
+      <div class="route-segment">ECITY</div>
+      <div class="route-segment">YELA</div>
+      <div id="route-marker" aria-hidden="true"></div>
+      <div id="route-finish" aria-hidden="true">FINISH</div>
+    </div>
     <canvas id="gameCanvas" width="800" height="380"></canvas>
 
     <div id="ui-overlay">
@@ -20,64 +32,66 @@
       <div id="power-indicator" class="hidden"></div>
     </div>
 
-    <div id="horn-bar-container">
-      <div id="horn-bar-track">
-        <div id="horn-bar-fill"></div>
+    <div id="power-controls-panel">
+      <div id="power-status-row">
+        <span id="power-label">POWER CONTROLS</span>
+        <span id="power-help">fills with time</span>
       </div>
-      <div id="horn-keys">
-        <div class="note-slot" id="note-A">A</div>
-        <div class="note-slot" id="note-S">S</div>
-        <div class="note-slot" id="note-D">D</div>
-        <div class="note-slot" id="note-F">F</div>
-      </div>
-      <div id="combo-legend">
-        <span class="combo-hint">A = SHIELD</span>
-        <span class="combo-hint">S = MELT</span>
-        <span class="combo-hint">D = TURBO</span>
-        <span class="combo-hint">F = GHOST</span>
-      </div>
+      <button class="note-slot" id="note-horn" type="button">
+        <span class="power-fill"></span>
+        <span class="power-label">HORN</span>
+      </button>
     </div>
 
     <div id="start-screen">
       <div id="start-title">AUTO RAJA</div>
       <div id="start-sub">BANGALORE RUSH</div>
       <div id="start-story">
-        You are Rajappa — 20 years on Bangalore roads.<br>
-        Navigate traffic, survive the monsoon,<br>
-        and don't lose your mind (too much).
+        Tap jump. Time the horn. Survive Bangalore traffic.
       </div>
       <div id="controls-box">
-        <div>SPACE / ↑ — JUMP</div>
-        <div>↓ — BRAKE</div>
-        <div>JUMP + BRAKE — FILL POWER BAR</div>
-        <div>A=SHIELD  S=MELT  D=TURBO  F=GHOST</div>
-      </div>
-      <div id="mode-toggles">
-        <div class="toggle-row">
-          <span class="toggle-label">ANIME MODE</span>
-          <label class="toggle-switch">
-            <input type="checkbox" id="toggle-anime">
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="toggle-desc">PASTEL PALETTE</span>
+        <div class="preview-route">JUMP over people, vehicles, and road hazards</div>
+        <div class="preview-power-row">
+          <span>BRAKE</span>
+          <span>HORN</span>
+          <span>LIGHTS</span>
         </div>
-        <div class="toggle-row">
-          <span class="toggle-opt opt-active" id="opt-acid">ACID TRIP</span>
-          <label class="toggle-switch">
-            <input type="checkbox" id="toggle-overlay">
-            <span class="toggle-slider overlay-slider"></span>
-          </label>
-          <span class="toggle-opt" id="opt-vg">VAN GOGH</span>
-        </div>
+        <div class="preview-jump">JUMP</div>
       </div>
-      <button id="start-btn">VAANGO BOSS!</button>
+      <button id="start-btn">TAP TO PLAY</button>
     </div>
 
     <div id="gameover-screen" class="hidden">
       <div id="gameover-title">GAME OVER</div>
       <div id="gameover-score">SCORE: <span id="final-score">0</span></div>
+      <div id="best-score-row">BEST: <span id="best-score">0</span></div>
       <div id="gameover-msg"></div>
-      <button id="retry-btn">PLAY AGAIN</button>
+      <div id="gameover-actions">
+        <button id="retry-btn" type="button">PLAY AGAIN</button>
+        <button id="share-btn" type="button">SHARE SCORE</button>
+      </div>
+      <div id="share-status" aria-live="polite"></div>
+    </div>
+
+    <div id="touch-controls" aria-label="Mobile controls">
+      <button id="touch-brake" class="touch-btn touch-power" type="button">
+        <span class="power-fill"></span>
+        <span class="touch-label">BRAKE</span>
+        <span class="power-countdown"></span>
+      </button>
+      <button id="touch-horn" class="touch-btn touch-power" type="button">
+        <span id="horn-bar-fill" class="power-fill"></span>
+        <span class="touch-label">HORN</span>
+        <span class="power-countdown"></span>
+      </button>
+      <button id="touch-lights" class="touch-btn touch-power" type="button">
+        <span class="power-fill"></span>
+        <span class="touch-label">LIGHTS</span>
+        <span class="power-countdown"></span>
+      </button>
+      <button id="touch-jump" class="touch-btn touch-jump" type="button">
+        <span class="touch-label">JUMP</span>
+      </button>
     </div>
   </div>
 
