@@ -107,11 +107,11 @@ assert.deepEqual(hooks.getObstacleWeightsForElapsed(0, { pothole: 3, pedestrian:
 });
 assert.deepEqual(hooks.getObstacleWeightsForElapsed(15000, { pothole: 3, pedestrian: 3, it_bus: 2 }), {
   pothole: 2,
-  pedestrian: 1
+  dog: 1
 });
 assert.deepEqual(hooks.getObstacleWeightsForElapsed(45000, { pothole: 3, pedestrian: 3, traffic_cone: 2, it_bus: 2 }), {
   pothole: 3,
-  pedestrian: 2,
+  dog: 2,
   traffic_cone: 1
 });
 assert.deepEqual(hooks.getObstacleWeightsForElapsed(61000, { pothole: 3, pedestrian: 3, it_bus: 2 }), {
@@ -127,11 +127,65 @@ assert.equal(typeof hooks.shouldAllowDoubleSpawn, 'function');
 assert.equal(hooks.shouldAllowDoubleSpawn(59999), false);
 assert.equal(hooks.shouldAllowDoubleSpawn(60000), true);
 
-assert.equal(typeof hooks.getHornChargeAfterAction, 'function');
-assert.equal(hooks.getHornChargeAfterAction(0, 'jump'), 0.14);
-assert.equal(hooks.getHornChargeAfterAction(0.9, 'brake'), 1);
-assert.equal(hooks.getHornChargeAfterAction(0.2, 'tap'), 0.24);
-assert.equal(hooks.getHornChargeAfterAction(0.2, 'unknown'), 0.2);
+assert.equal(typeof hooks.getNormalObstacleActions, 'function');
+assert.deepEqual(new Set(Object.values(hooks.getNormalObstacleActions())), new Set(['jump']));
+
+assert.equal(typeof hooks.getObstacleSpawnY, 'function');
+assert.equal(hooks.getObstacleSpawnY('pedestrian'), 300 - 58);
+assert.equal(hooks.getObstacleSpawnY('police'), 300 - 58);
+assert.equal(hooks.getObstacleSpawnY('bbmp'), 300 - 52);
+assert.equal(hooks.getObstacleSpawnY('hawker'), 300 - 62);
+assert.equal(hooks.getObstacleSpawnY('it_bus'), 300 - 52);
+
+assert.equal(typeof hooks.getSpeedForDistance, 'function');
+assert.equal(hooks.getSpeedForDistance(0), 4.4);
+assert.equal(hooks.getSpeedForDistance(42000), 5.4);
+assert.equal(hooks.getSpeedForDistance(420000), 7.2);
+
+assert.equal(typeof hooks.getRouteProgress, 'function');
+assert.equal(hooks.getRouteProgress(0, 0), 0);
+assert.equal(hooks.getRouteProgress(60000, 0), 0);
+assert.equal(hooks.getRouteProgress(90000, 1), 0.2);
+assert.equal(hooks.getRouteProgress(120000, 2), 0.4);
+
+assert.equal(typeof hooks.getPowerFillAfterElapsed, 'function');
+assert.equal(hooks.getPowerFillAfterElapsed('brake', 2500), 0.5);
+assert.equal(hooks.getPowerFillAfterElapsed('brake', 5000), 1);
+assert.equal(hooks.getPowerFillAfterElapsed('horn', 4000), 0.5);
+assert.equal(hooks.getPowerFillAfterElapsed('horn', 8000), 1);
+assert.equal(hooks.getPowerFillAfterElapsed('lights', 5500), 0.5);
+assert.equal(hooks.getPowerFillAfterElapsed('lights', 11000), 1);
+assert.equal(hooks.getPowerFillAfterElapsed('unknown', 5000), 0);
+
+assert.equal(typeof hooks.createInitialPowerState, 'function');
+assert.deepEqual(hooks.createInitialPowerState(), {
+  brake: { fill: 0, active: false, remainingMs: 0, blastCount: 0, nextBlastMs: 0 },
+  horn: { fill: 0, active: false, remainingMs: 0, blastCount: 0, nextBlastMs: 0 },
+  lights: { fill: 0, active: false, remainingMs: 0, blastCount: 0, nextBlastMs: 0 }
+});
+
+assert.equal(typeof hooks.activatePowerState, 'function');
+assert.deepEqual(hooks.activatePowerState('brake'), {
+  fill: 0,
+  active: true,
+  remainingMs: 3000,
+  blastCount: 0,
+  nextBlastMs: 0
+});
+assert.deepEqual(hooks.activatePowerState('horn'), {
+  fill: 0,
+  active: true,
+  remainingMs: 3000,
+  blastCount: 3,
+  nextBlastMs: 0
+});
+assert.deepEqual(hooks.activatePowerState('lights'), {
+  fill: 0,
+  active: true,
+  remainingMs: 5000,
+  blastCount: 0,
+  nextBlastMs: 0
+});
 
 assert.equal(typeof hooks.formatShareText, 'function');
 assert.equal(

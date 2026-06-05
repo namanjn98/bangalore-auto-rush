@@ -4,14 +4,17 @@
 const CW = 800, CH = 380;
 const GROUND_Y = 300;
 const PLAYER_X = 110;
-const BASE_SPEED = 11;
-const MAX_SPEED = 15;
+const BASE_SPEED = 4.4;
+const MAX_SPEED = 7.2;
+const SPEED_RAMP_DISTANCE = 42000;
+const BRAKE_SLOW_FACTOR = 0.55;
 const GRAVITY = 0.55;
 const JUMP_VEL = -13;
 const ACID_INTERVAL = 20000;
 const ACID_DURATION = 5000;
 const ZONE_DURATION = 30000;
 const FIRST_MINUTE_MS = 60000;
+const FIRST_SPAWN_DELAY_MS = 6000;
 const DOSA_BREAK_AT_MS = 95000;
 const SETTINGS = { animeMode: false, overlayStyle: 'acid' };
 
@@ -34,18 +37,74 @@ const RunRules = {
   getObstacleWeightsForElapsed(elapsed, zoneWeights) {
     const phase = this.getRunPhase(elapsed);
     if (phase === 'jump_intro') return { pothole: 1 };
-    if (phase === 'brake_intro') return { pothole: 2, pedestrian: 1 };
-    if (phase === 'mixed_intro') return { pothole: 3, pedestrian: 2, traffic_cone: 1 };
+    if (phase === 'brake_intro') return { pothole: 2, dog: 1 };
+    if (phase === 'mixed_intro') return { pothole: 3, dog: 2, traffic_cone: 1 };
     return { ...zoneWeights };
+  },
+
+  getSpeedForDistance(distance) {
+    return Math.min(MAX_SPEED, BASE_SPEED + distance / SPEED_RAMP_DISTANCE);
+  },
+
+  getRouteProgress(elapsed, zone) {
+    if (!this.shouldAllowSpecialEvents(elapsed)) {
+      return Math.min(0.2, (elapsed / FIRST_MINUTE_MS) * 0.2);
+    }
+    const routeElapsed = elapsed - FIRST_MINUTE_MS;
+    const routeDuration = ZONE_DURATION * 5;
+    const loopProgress = (routeElapsed % routeDuration) / routeDuration;
+    return Math.max(zone / 5, loopProgress);
   }
 };
 
-const HornRules = {
-  CHARGE: { jump: 0.14, brake: 0.10, tap: 0.04 },
+const RouteMap = {
+  update(elapsed, zone) {
+    const marker = document.getElementById('route-marker');
+    if (!marker) return;
+    const progress = RunRules.getRouteProgress(elapsed, zone);
+    marker.style.left = `${Math.round(progress * 1000) / 10}%`;
+  },
 
-  getHornChargeAfterAction(current, action) {
-    const amount = this.CHARGE[action] || 0;
-    return Math.min(1, Math.round((current + amount) * 100) / 100);
+  reset() {
+    this.update(0, 0);
+  }
+};
+
+const PowerRules = {
+  DEFS: {
+    brake: { fillMs: 5000, activeMs: 3000 },
+    horn: { fillMs: 8000, activeMs: 3000, blasts: 3, blastEveryMs: 1000 },
+    lights: { fillMs: 11000, activeMs: 5000 }
+  },
+
+  getPowerFillAfterElapsed(power, elapsedMs) {
+    const def = this.DEFS[power];
+    if (!def) return 0;
+    return Math.min(1, Math.round((elapsedMs / def.fillMs) * 1000) / 1000);
+  },
+
+  createInitialPowerState() {
+    return {
+      brake: this._emptyPower(),
+      horn: this._emptyPower(),
+      lights: this._emptyPower()
+    };
+  },
+
+  _emptyPower() {
+    return { fill: 0, active: false, remainingMs: 0, blastCount: 0, nextBlastMs: 0 };
+  },
+
+  activatePowerState(power) {
+    const def = this.DEFS[power];
+    if (!def) return this._emptyPower();
+    return {
+      fill: 0,
+      active: true,
+      remainingMs: def.activeMs,
+      blastCount: def.blasts || 0,
+      nextBlastMs: 0
+    };
   }
 };
 
@@ -84,8 +143,7 @@ const GS = {
   lastTime: 0, dt: 0, elapsed: 0,
   zone: 0, zoneTimer: 0,
   acidTimer: 0, acidMode: false, acidCycleTimer: 0,
-  hornBar: 0,
-  activePower: null, powerTimer: 0,
+  powers: PowerRules.createInitialPowerState(),
   frameCount: 0,
   dosaBreak: false, dosaBreakDone: false,
   reset() {
@@ -94,7 +152,7 @@ const GS = {
     this.lastTime = 0; this.elapsed = 0;
     this.zone = 0; this.zoneTimer = 0;
     this.acidTimer = 0; this.acidMode = false; this.acidCycleTimer = 0;
-    this.hornBar = 0; this.activePower = null; this.powerTimer = 0;
+    this.powers = PowerRules.createInitialPowerState();
     this.frameCount = 0;
     this.dosaBreak = false; this.dosaBreakDone = false;
   }
@@ -1090,7 +1148,7 @@ const Player = {
     }
 
     this.wheelRot += GS.speed * 0.12;
-    if (GS.activePower) { this.invincible = true; }
+    if (Powers.isActive('lights')) { this.invincible = true; }
     else { this.invincible = false; }
 
     // exhaust puffs
@@ -1107,7 +1165,6 @@ const Player = {
     if (this.grounded) {
       this.vy = JUMP_VEL; this.grounded = false; this.jumping = true;
       Audio.sfx('jump');
-      Horn.addActionCharge('jump');
     }
   },
 
@@ -1127,8 +1184,7 @@ const Player = {
 
     // invincible glow
     if (this.invincible) {
-      const powerColors = { turbo_boost:'#ff8800', ghost_mode:'#00ffff', monsoon_shield:'#4488ff', traffic_melt:'#ff4444' };
-      ctx.strokeStyle = powerColors[GS.activePower] || '#fff';
+      ctx.strokeStyle = GS.frameCount % 10 < 5 ? '#FFD700' : '#ffffff';
       ctx.lineWidth = 3;
       ctx.strokeRect(x-3, y-3, 62, 50);
     }
@@ -1220,24 +1276,24 @@ const Player = {
 const Obstacles = {
   list: [],
   spawnTimer: 0,
-  spawnInterval: 1800,
+  spawnInterval: 2800,
   lastAction: null,
 
   TYPES: {
     pothole:    { action:'jump',  w:42,  h:18, drawFn:'drawPothole',   yOff:0 },
     garbage:    { action:'jump',  w:48,  h:34, drawFn:'drawGarbage',   yOff:0 },
     dog:        { action:'jump',  w:48,  h:26, drawFn:'drawDog',       yOff:0 },
-    pedestrian: { action:'brake', w:36,  h:58, drawFn:'drawPedestrian',yOff:-18 },
-    police:     { action:'brake', w:40,  h:58, drawFn:'drawPolice',    yOff:-18 },
-    drunkard:   { action:'brake', w:42,  h:58, drawFn:'drawDrunkard',  yOff:-18 },
-    shopper:    { action:'brake', w:36,  h:58, drawFn:'drawShopper',   yOff:-18 },
-    bbmp:       { action:'brake', w:82,  h:52, drawFn:'drawBBMP',      yOff:-12 },
-    itpro:      { action:'brake', w:38,  h:58, drawFn:'drawITPro',     yOff:-18 },
-    it_bus:       { action:'super', w:112, h:52, drawFn:'drawITBus',       yOff:-12 },
+    pedestrian: { action:'jump', w:36,  h:58, drawFn:'drawPedestrian',yOff:0 },
+    police:     { action:'jump', w:40,  h:58, drawFn:'drawPolice',    yOff:0 },
+    drunkard:   { action:'jump', w:42,  h:58, drawFn:'drawDrunkard',  yOff:0 },
+    shopper:    { action:'jump', w:36,  h:58, drawFn:'drawShopper',   yOff:0 },
+    bbmp:       { action:'jump', w:82,  h:52, drawFn:'drawBBMP',      yOff:0 },
+    itpro:      { action:'jump', w:38,  h:58, drawFn:'drawITPro',     yOff:0 },
+    it_bus:       { action:'super', w:112, h:52, drawFn:'drawITBus',       yOff:0 },
     flood:        { action:'super', w:66,  h:CH, drawFn:'drawFlood',       yOff:0, fullH:true },
     traffic_cone: { action:'jump',  w:18,  h:24, drawFn:'drawTrafficCone', yOff:0 },
     speed_bump:   { action:'jump',  w:62,  h:12, drawFn:'drawSpeedBump',   yOff:0 },
-    hawker:       { action:'brake', w:54,  h:62, drawFn:'drawHawker',      yOff:-20 },
+    hawker:       { action:'jump',  w:54,  h:62, drawFn:'drawHawker',      yOff:0 },
     monkey:       { action:'jump',  w:40,  h:32, drawFn:'drawMonkey',      yOff:0 },
   },
 
@@ -1259,7 +1315,6 @@ const Obstacles = {
 
   spawn() {
     let weights = RunRules.getObstacleWeightsForElapsed(GS.elapsed, this.ZONE_W[GS.zone]);
-    if (GS.hornBar < 0.3) { delete weights.it_bus; delete weights.flood; }
     if (RunRules.getRunPhase(GS.elapsed) === 'full_game' && this.lastAction === 'jump') {
       delete weights.pothole;
       delete weights.dog;
@@ -1279,7 +1334,7 @@ const Obstacles = {
 
   update(dt) {
     this.spawnTimer += dt;
-    const interval = Math.max(1000, this.spawnInterval - (GS.speed - BASE_SPEED) * 120);
+    const interval = Math.max(1800, this.spawnInterval - (GS.speed - BASE_SPEED) * 90);
     if (this.spawnTimer >= interval) {
       this.spawnTimer = 0;
       this.spawn();
@@ -1288,7 +1343,7 @@ const Obstacles = {
       }
     }
     for (const obs of this.list) {
-      obs.x -= GS.speed * (GS.activePower==='turbo_boost' ? 1.8 : 1);
+      obs.x -= Game.getScrollSpeed();
       obs.frameCount++;
       // warning for super obstacles
       if (!obs.warnShown && obs.action==='super' && obs.x < PLAYER_X + 380) {
@@ -1308,13 +1363,8 @@ const Obstacles = {
       if (!hit) continue;
       if (obs.action==='jump') {
         if (!Player.jumping && Player.grounded) { Game.die(); return; }
-      } else if (obs.action==='brake') {
-        if (!Player.braking) { Game.die(); return; }
-        else { obs.alive=false; Particles.boom(obs.x+obs.w/2, obs.y+obs.h/2, '#FFD700', 10); }
+        obs.alive = false;
       } else if (obs.action==='super') {
-        if (GS.activePower==='ghost_mode'||GS.activePower==='turbo_boost') { obs.alive=false; return; }
-        if (obs.type==='flood'&&GS.activePower==='monsoon_shield') { obs.alive=false; return; }
-        if (obs.type==='it_bus'&&GS.activePower==='traffic_melt') { obs.alive=false; return; }
         Game.die(); return;
       }
     }
@@ -1343,9 +1393,6 @@ const Obstacles = {
         if (obs.action === 'jump') {
           ctx.fillStyle = blink ? '#00ffff' : '#007788';
           ctx.fillText('↑ JUMP', cx, cy);
-        } else {
-          ctx.fillStyle = blink ? '#ff8800' : '#884400';
-          ctx.fillText('↓ BRAKE', cx, cy);
         }
         ctx.restore();
       }
@@ -1353,40 +1400,98 @@ const Obstacles = {
   }
 };
 
-// ─── POWER BAR SYSTEM ────────────────────────────────────────────────────────
-const Horn = {
-  addActionCharge(action) {
-    GS.hornBar = HornRules.getHornChargeAfterAction(GS.hornBar, action);
+// ─── TIMED POWER SYSTEM ──────────────────────────────────────────────────────
+const Powers = {
+  order: ['brake', 'horn', 'lights'],
+
+  isActive(power) {
+    return !!(GS.powers[power] && GS.powers[power].active);
   },
 
-  press() {
-    Audio.horn('A');
-    const el = document.getElementById('note-horn');
-    if (el) { el.classList.add('pressed'); setTimeout(()=>el.classList.remove('pressed'), 90); }
-    if (GS.hornBar >= 0.98 && !GS.activePower) {
-      this._triggerBlast();
-    } else {
-      this.addActionCharge('tap');
+  press(power) {
+    const state = GS.powers[power];
+    if (!GS.alive || !state || state.fill < 1 || state.active) return;
+    GS.powers[power] = PowerRules.activatePowerState(power);
+    if (power === 'horn') {
+      this._blast();
+      GS.powers.horn.nextBlastMs = PowerRules.DEFS.horn.blastEveryMs;
+    } else if (power === 'brake') {
+      Player.braking = true;
+      Audio.sfx('brake');
+      this._showIndicator('SLOW 3');
+    } else if (power === 'lights') {
+      Audio.sfx('combo');
+      this._showIndicator('LIGHTS 5');
     }
+    this._pulseButton(power);
   },
 
-  _triggerBlast() {
+  _blast() {
+    Audio.horn('A');
     Audio.sfx('combo');
-    GS.hornBar = 0;
     Obstacles.clearAll();
     Particles.boom(CW/2, CH/2, '#FFD700', 24);
     Particles.sparkle(Player.x+28, Player.y+10);
+    this._showIndicator('HORN BLAST');
+  },
+
+  _showIndicator(text) {
     const pi = document.getElementById('power-indicator');
-    pi.textContent = 'HORN BLAST!';
+    if (!pi) return;
+    pi.textContent = text;
     pi.classList.remove('hidden');
-    setTimeout(() => pi.classList.add('hidden'), 900);
+  },
+
+  _pulseButton(power) {
+    const el = document.getElementById(`touch-${power}`) || document.getElementById('note-horn');
+    if (!el) return;
+    el.classList.add('pressed', 'is-pressed');
+    setTimeout(() => el.classList.remove('pressed', 'is-pressed'), 120);
   },
 
   update(dt) {
-    GS.hornBar = Math.max(0, GS.hornBar - 0.0002);
-    document.getElementById('horn-bar-fill').style.width = (GS.hornBar * 100) + '%';
-    document.getElementById('speed-value').textContent = GS.speed.toFixed(1);
+    for (const power of this.order) {
+      const state = GS.powers[power];
+      const def = PowerRules.DEFS[power];
+      if (!state.active) {
+        state.fill = Math.min(1, state.fill + dt / def.fillMs);
+      } else {
+        state.remainingMs = Math.max(0, state.remainingMs - dt);
+        if (power === 'horn') {
+          state.nextBlastMs -= dt;
+          if (state.blastCount > 1 && state.nextBlastMs <= 0 && state.remainingMs > 0) {
+            state.blastCount--;
+            state.nextBlastMs += def.blastEveryMs;
+            this._blast();
+          }
+        }
+        if (state.remainingMs <= 0) {
+          state.active = false;
+          state.blastCount = 0;
+          state.nextBlastMs = 0;
+          if (power === 'brake') Player.braking = false;
+        }
+      }
+      this._renderButton(power, state);
+    }
+    const pi = document.getElementById('power-indicator');
+    if (pi && !this.order.some(power => GS.powers[power].active)) pi.classList.add('hidden');
+    document.getElementById('speed-value').textContent = Game.getScrollSpeed().toFixed(1);
     document.getElementById('score-value').textContent = GS.score;
+  },
+
+  _renderButton(power, state) {
+    const btn = document.getElementById(`touch-${power}`) || (power === 'horn' ? document.getElementById('note-horn') : null);
+    if (!btn) return;
+    const fill = btn.querySelector && btn.querySelector('.power-fill');
+    if (fill) fill.style.width = `${Math.round(state.fill * 100)}%`;
+    btn.classList.toggle('power-ready', state.fill >= 1 && !state.active);
+    btn.classList.toggle('power-active', state.active);
+    const count = btn.querySelector && btn.querySelector('.power-countdown, .power-count');
+    if (!count) return;
+    if (state.active && power === 'horn') count.textContent = String(Math.max(1, state.blastCount));
+    else if (state.active) count.textContent = String(Math.ceil(state.remainingMs / 1000));
+    else count.textContent = state.fill >= 1 ? 'READY' : `${Math.round(state.fill * 100)}%`;
   }
 };
 
@@ -1725,7 +1830,7 @@ const Game = {
 
   start() {
     GS.reset();
-    Obstacles.list = []; Obstacles.spawnTimer = 0; Obstacles.lastAction = null;
+    Obstacles.list = []; Obstacles.spawnTimer = -FIRST_SPAWN_DELAY_MS; Obstacles.lastAction = null;
     Particles.list = []; Particles.rain = [];
     Player.x=PLAYER_X; Player.y=GROUND_Y-42; Player.vy=0; Player.grounded=true;
     Player.jumping=false; Player.braking=false; Player.exhaust=[];
@@ -1741,6 +1846,7 @@ const Game = {
     document.body.classList.remove('acid-mode', 'van-gogh-mode');
     document.body.classList.add('game-active');
     document.body.classList.toggle('anime-mode', SETTINGS.animeMode);
+    RouteMap.reset();
     Audio._init();
     Audio.startMusic();
     Audio.setRain(0);
@@ -1768,7 +1874,7 @@ const Game = {
     if (!GS.paused && GS.alive) {
       GS.distance += GS.speed;
       GS.score = Math.floor(GS.distance / 8);
-      GS.speed = Math.min(MAX_SPEED, BASE_SPEED + GS.distance / 9000);
+      GS.speed = RunRules.getSpeedForDistance(GS.distance);
 
       if (RunRules.shouldAllowSpecialEvents(GS.elapsed)) {
         GS.zoneTimer += GS.dt;
@@ -1790,8 +1896,9 @@ const Game = {
       Player.update(GS.dt);
       Obstacles.update(GS.dt);
       Obstacles.checkCollisions();
-      Horn.update(GS.dt);
+      Powers.update(GS.dt);
       Particles.update(GS.dt);
+      RouteMap.update(GS.elapsed, GS.zone);
 
       if (GS.zone <= 1) Particles.addRain(GS.zone);
     }
@@ -1876,15 +1983,16 @@ const Game = {
     setTimeout(()=>banner.classList.add('hidden'), 2700);
   },
 
+  getScrollSpeed() {
+    return GS.speed * (Powers.isActive('brake') ? BRAKE_SLOW_FACTOR : 1);
+  },
+
   startBrake() {
-    if (!GS.alive || Player.braking) return;
-    Player.braking = true;
-    Audio.sfx('brake');
-    Horn.addActionCharge('brake');
+    Powers.press('brake');
   },
 
   stopBrake() {
-    Player.braking = false;
+    if (!Powers.isActive('brake')) Player.braking = false;
   },
 
   bindPressButton(id, onPress) {
@@ -1946,7 +2054,8 @@ const Game = {
 
       if (e.code==='Space'||e.code==='ArrowUp') { e.preventDefault(); Player.jump(); }
       else if (e.code==='ArrowDown') { e.preventDefault(); this.startBrake(); }
-      else if (e.code==='KeyH'||e.code==='KeyA'||e.code==='KeyS'||e.code==='KeyD'||e.code==='KeyF') Horn.press();
+      else if (e.code==='KeyH') Powers.press('horn');
+      else if (e.code==='KeyL') Powers.press('lights');
     });
 
     document.addEventListener('keyup', e => {
@@ -1977,12 +2086,14 @@ const Game = {
     }
     document.getElementById('start-btn').addEventListener('click', () => this.start());
     document.getElementById('retry-btn').addEventListener('click', () => this.start());
-    document.getElementById('note-horn').addEventListener('click', () => { if (GS.alive) Horn.press(); });
+    const noteHorn = document.getElementById('note-horn');
+    if (noteHorn) noteHorn.addEventListener('click', () => Powers.press('horn'));
     document.getElementById('share-btn').addEventListener('click', () => this.shareScore());
 
     this.bindPressButton('touch-jump', () => Player.jump());
-    this.bindPressButton('touch-horn', () => Horn.press());
-    this.bindHoldButton('touch-brake', () => this.startBrake(), () => this.stopBrake());
+    this.bindPressButton('touch-brake', () => Powers.press('brake'));
+    this.bindPressButton('touch-horn', () => Powers.press('horn'));
+    this.bindPressButton('touch-lights', () => Powers.press('lights'));
   }
 };
 
@@ -1992,7 +2103,21 @@ const AutoRajaTestHooks = {
   getObstacleWeightsForElapsed: (elapsed, zoneWeights) => RunRules.getObstacleWeightsForElapsed(elapsed, zoneWeights),
   shouldAllowSpecialEvents: elapsed => RunRules.shouldAllowSpecialEvents(elapsed),
   shouldAllowDoubleSpawn: elapsed => RunRules.shouldAllowDoubleSpawn(elapsed),
-  getHornChargeAfterAction: (current, action) => HornRules.getHornChargeAfterAction(current, action),
+  getPowerFillAfterElapsed: (power, elapsedMs) => PowerRules.getPowerFillAfterElapsed(power, elapsedMs),
+  createInitialPowerState: () => PowerRules.createInitialPowerState(),
+  activatePowerState: power => PowerRules.activatePowerState(power),
+  getSpeedForDistance: distance => RunRules.getSpeedForDistance(distance),
+  getRouteProgress: (elapsed, zone) => RunRules.getRouteProgress(elapsed, zone),
+  getObstacleSpawnY: type => {
+    const def = Obstacles.TYPES[type];
+    if (!def) return null;
+    return def.fullH ? 0 : GROUND_Y - def.h + (def.yOff || 0);
+  },
+  getNormalObstacleActions: () => Object.fromEntries(
+    Object.entries(Obstacles.TYPES)
+      .filter(([, def]) => def.action !== 'super')
+      .map(([type, def]) => [type, def.action])
+  ),
   formatShareText: (score, best, url) => ScoreShare.formatShareText(score, best, url)
 };
 
