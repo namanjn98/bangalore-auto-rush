@@ -1904,20 +1904,37 @@ const Game = {
   bindHoldButton(id, onDown, onUp) {
     const el = document.getElementById(id);
     if (!el) return;
+    let activePointerId = null;
+    const releasePointerCapture = pointerId => {
+      if (!el.releasePointerCapture) return;
+      try {
+        if (!el.hasPointerCapture || el.hasPointerCapture(pointerId)) {
+          el.releasePointerCapture(pointerId);
+        }
+      } catch (err) {}
+    };
     const release = e => {
       if (e) e.preventDefault();
+      if (!e || e.pointerId !== activePointerId) return;
+      releasePointerCapture(activePointerId);
+      activePointerId = null;
       el.classList.remove('is-pressed');
       onUp();
     };
     el.addEventListener('pointerdown', e => {
       e.preventDefault();
-      if (!GS.alive) return;
+      if (!GS.alive || activePointerId !== null) return;
+      activePointerId = e.pointerId;
+      if (el.setPointerCapture) {
+        try {
+          el.setPointerCapture(activePointerId);
+        } catch (err) {}
+      }
       el.classList.add('is-pressed');
       onDown();
     });
     el.addEventListener('pointerup', release);
     el.addEventListener('pointercancel', release);
-    el.addEventListener('pointerleave', release);
   },
 
   bindInputs() {
