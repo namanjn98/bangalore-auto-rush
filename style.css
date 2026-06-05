@@ -303,6 +303,18 @@ body {
   background: rgba(255,215,0,0.25);
 }
 
+#note-horn {
+  border-color: #4488ff;
+  color: #4488ff;
+}
+#note-horn .power-fill {
+  background: linear-gradient(90deg, #0044cc, #4488ff, #aaccff);
+  box-shadow: 0 0 8px #4488ff;
+}
+#note-horn.pressed {
+  background: rgba(68,136,255,0.25);
+}
+
 /* Start screen */
 #start-screen, #gameover-screen {
   position: absolute;
@@ -657,9 +669,32 @@ button:active { transform: scale(0.97); box-shadow: 2px 2px #884400; }
     border-color: #FFD700;
   }
 
-  #touch-brake { grid-area: brake; }
-  #touch-horn { grid-area: horn; }
-  #touch-lights { grid-area: lights; }
+  #touch-brake { grid-area: brake; border-color: rgba(170,102,255,0.6); }
+  #touch-horn { grid-area: horn; border-color: rgba(68,136,255,0.6); }
+  #touch-lights { grid-area: lights; border-color: rgba(68,204,136,0.6); }
+
+  #touch-horn:active, #touch-horn.is-pressed {
+    background: rgba(68,136,255,0.28);
+    border-color: #4488ff;
+  }
+  #touch-lights:active, #touch-lights.is-pressed {
+    background: rgba(68,204,136,0.28);
+    border-color: #44cc88;
+  }
+  #touch-brake:active, #touch-brake.is-pressed {
+    background: rgba(170,102,255,0.28);
+    border-color: #aa66ff;
+  }
+
+  #touch-horn .power-fill {
+    background: linear-gradient(0deg, rgba(0,68,204,0.9), rgba(68,136,255,0.86));
+  }
+  #touch-lights .power-fill {
+    background: linear-gradient(0deg, rgba(0,140,60,0.9), rgba(68,204,136,0.86));
+  }
+  #touch-brake .power-fill {
+    background: linear-gradient(0deg, rgba(100,0,200,0.9), rgba(170,102,255,0.86));
+  }
 
   .touch-jump {
     grid-column: 1 / -1;

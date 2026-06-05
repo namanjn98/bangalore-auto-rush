@@ -189,8 +189,8 @@ assert.deepEqual(hooks.activatePowerState('lights'), {
 
 assert.equal(typeof hooks.formatShareText, 'function');
 assert.equal(
-  hooks.formatShareText(2140, 3000, 'https://example.com/auto-raja'),
-  'I scored 2140 in Auto Raja: Bangalore Rush. Best on this phone: 3000. Beat me: https://example.com/auto-raja'
+  hooks.formatShareText(2140, 3000),
+  'I scored 2140 in Auto Raja: Bangalore Rush. Best on this phone: 3000. Can you beat me?'
 );
 
 console.log('game-rules tests passed');
