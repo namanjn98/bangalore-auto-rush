@@ -7,8 +7,8 @@ const BASE_PLAYER_X = 110;
 let CW = BASE_CW, CH = BASE_CH;
 let GROUND_Y = BASE_GROUND_Y;
 let PLAYER_X = BASE_PLAYER_X;
-const BASE_SPEED = 4.4;
-const MAX_SPEED = 7.2;
+const BASE_SPEED = 4.7;
+const MAX_SPEED = 6;
 const SPEED_RAMP_DISTANCE = 42000;
 const BRAKE_SLOW_FACTOR = 0.55;
 const GRAVITY = 0.55;
@@ -174,8 +174,8 @@ const ScoreShare = {
     return best;
   },
 
-  formatShareText(score, best, url) {
-    return `I scored ${score} in Auto Raja: Bangalore Rush. Best on this phone: ${best}. Beat me: ${url}`;
+  formatShareText(score, best) {
+    return `I scored ${score} in Auto Raja: Bangalore Rush. Best on this phone: ${best}. Can you beat me?`;
   }
 };
 
@@ -1730,9 +1730,16 @@ const DosaBreak = {
   },
 
   draw(ctx) {
-    // dark curtain
+    // dark curtain covers full canvas before any transform
     ctx.fillStyle = 'rgba(0,0,0,0.82)';
     ctx.fillRect(0, 0, CW, CH);
+
+    // scale scene (designed for 800px wide) to fit current canvas width
+    const scale = CW / BASE_CW;
+    const oy = Math.max(0, Math.round((CH - BASE_CH * scale) * 0.38));
+    ctx.save();
+    ctx.translate(0, oy);
+    ctx.scale(scale, scale);
 
     // restaurant background panel
     ctx.fillStyle = '#1a3a1a'; ctx.fillRect(180, 60, 440, 260);
@@ -1832,10 +1839,10 @@ const DosaBreak = {
     ctx.textAlign = 'center';
     ctx.font = 'bold 22px monospace';
     ctx.fillStyle = '#FFD700';
-    ctx.fillText('DOSA BREAK!', CW/2, 45);
+    ctx.fillText('DOSA BREAK!', BASE_CW/2, 45);
     ctx.font = '8px monospace';
     ctx.fillStyle = '#aaffaa';
-    ctx.fillText('Rajappa stops at his favourite darshini...', CW/2, 58);
+    ctx.fillText('Rajappa stops at his favourite darshini...', BASE_CW/2, 58);
 
     // speech bubble from Rajappa
     const bubbleX = ex - 130, bubbleY = ey - 20;
@@ -1854,8 +1861,9 @@ const DosaBreak = {
     ctx.fillStyle = '#333'; ctx.fillRect(200, 300, 400, 8);
     ctx.fillStyle = '#FFD700'; ctx.fillRect(200, 300, 400*pct, 8);
     ctx.font = '7px monospace'; ctx.fillStyle = '#888'; ctx.textAlign = 'center';
-    ctx.fillText('resuming in ' + Math.ceil((this.DURATION - this.timer) / 1000) + 's  |  any key to skip', CW/2, 325);
+    ctx.fillText('resuming in ' + Math.ceil((this.DURATION - this.timer) / 1000) + 's  |  tap to skip', BASE_CW/2, 325);
 
+    ctx.restore();
     ctx.textAlign = 'left';
   },
 
@@ -2031,7 +2039,7 @@ const Game = {
   async shareScore() {
     const best = ScoreShare.readBestScore();
     const url = window.location && window.location.href ? window.location.href : 'https://example.com';
-    const text = ScoreShare.formatShareText(GS.score, best, url);
+    const text = ScoreShare.formatShareText(GS.score, best);
     const status = document.getElementById('share-status');
     try {
       if (navigator.share) {
@@ -2039,7 +2047,7 @@ const Game = {
         status.textContent = 'Shared.';
         return;
       }
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(`${text} ${url}`);
       status.textContent = 'Score copied.';
     } catch (err) {
       status.textContent = text;
@@ -2166,6 +2174,10 @@ const Game = {
     if (noteHorn) noteHorn.addEventListener('click', () => Powers.press('horn'));
     document.getElementById('share-btn').addEventListener('click', () => this.shareScore());
 
+    this.canvas.addEventListener('pointerdown', () => {
+      if (GS.dosaBreak) DosaBreak.skipOnKey();
+    });
+
     this.bindPressButton('touch-jump', () => Player.jump());
     this.bindPressButton('touch-brake', () => Powers.press('brake'));
     this.bindPressButton('touch-horn', () => Powers.press('horn'));
@@ -2194,7 +2206,7 @@ const AutoRajaTestHooks = {
       .filter(([, def]) => def.action !== 'super')
       .map(([type, def]) => [type, def.action])
   ),
-  formatShareText: (score, best, url) => ScoreShare.formatShareText(score, best, url)
+  formatShareText: (score, best) => ScoreShare.formatShareText(score, best)
 };
 
 if (typeof module !== 'undefined' && module.exports) {
