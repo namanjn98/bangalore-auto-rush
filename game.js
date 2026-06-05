@@ -1,9 +1,12 @@
 'use strict';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const CW = 800, CH = 380;
-const GROUND_Y = 300;
-const PLAYER_X = 110;
+const BASE_CW = 800, BASE_CH = 380;
+const BASE_GROUND_Y = 300;
+const BASE_PLAYER_X = 110;
+let CW = BASE_CW, CH = BASE_CH;
+let GROUND_Y = BASE_GROUND_Y;
+let PLAYER_X = BASE_PLAYER_X;
 const BASE_SPEED = 4.4;
 const MAX_SPEED = 7.2;
 const SPEED_RAMP_DISTANCE = 42000;
@@ -67,6 +70,46 @@ const RouteMap = {
 
   reset() {
     this.update(0, 0);
+  }
+};
+
+const CanvasView = {
+  apply(canvas) {
+    if (!canvas) return;
+
+    if (!this.isMobile()) {
+      this.setLogicalSize(canvas, BASE_CW, BASE_CH, BASE_GROUND_Y, BASE_PLAYER_X);
+      return;
+    }
+
+    const stage = document.getElementById('canvas-stage') || canvas.parentElement || canvas;
+    const rect = stage.getBoundingClientRect ? stage.getBoundingClientRect() : {};
+    const fallbackWidth = window.innerWidth || BASE_CW;
+    const fallbackHeight = Math.max(BASE_CH, (window.innerHeight || 640) - 220);
+    const logicalWidth = Math.round(this.clamp(rect.width || fallbackWidth, 320, 560));
+    const logicalHeight = Math.round(this.clamp(rect.height || fallbackHeight, 420, 720));
+    const roadHeight = Math.round(this.clamp(logicalHeight * 0.27, 118, 168));
+    const playerX = Math.round(this.clamp(logicalWidth * 0.22, 72, 102));
+
+    this.setLogicalSize(canvas, logicalWidth, logicalHeight, logicalHeight - roadHeight, playerX);
+  },
+
+  isMobile() {
+    if (!window.matchMedia) return false;
+    return window.matchMedia('(max-width: 700px), (pointer: coarse)').matches;
+  },
+
+  setLogicalSize(canvas, width, height, groundY, playerX) {
+    CW = width;
+    CH = height;
+    GROUND_Y = groundY;
+    PLAYER_X = playerX;
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+  },
+
+  clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
   }
 };
 
@@ -1325,7 +1368,7 @@ const Obstacles = {
     const gy = def.fullH ? 0 : GROUND_Y - def.h + (def.yOff||0);
     this.list.push({
       type, x: CW+20, y: gy,
-      w: def.w, h: def.h,
+      w: def.w, h: def.fullH ? CH : def.h,
       drawFn: def.drawFn, action: def.action,
       warnShown: false, alive: true, frameCount: 0
     });
@@ -1505,6 +1548,13 @@ const Acid = {
   init() {
     this.offCanvas = document.createElement('canvas');
     this.offCanvas.width = CW; this.offCanvas.height = CH;
+    this.offCtx = this.offCanvas.getContext('2d');
+  },
+
+  resize() {
+    if (!this.offCanvas) return;
+    if (this.offCanvas.width !== CW) this.offCanvas.width = CW;
+    if (this.offCanvas.height !== CH) this.offCanvas.height = CH;
     this.offCtx = this.offCanvas.getContext('2d');
   },
 
@@ -1821,20 +1871,13 @@ const Game = {
 
   init() {
     this.canvas = document.getElementById('gameCanvas');
-    this.ctx = this.canvas.getContext('2d');
-    this.ctx.imageSmoothingEnabled = false;
+    this.resizeCanvas();
     BG.init();
     Acid.init();
     this.bindInputs();
   },
 
   start() {
-    GS.reset();
-    Obstacles.list = []; Obstacles.spawnTimer = -FIRST_SPAWN_DELAY_MS; Obstacles.lastAction = null;
-    Particles.list = []; Particles.rain = [];
-    Player.x=PLAYER_X; Player.y=GROUND_Y-42; Player.vy=0; Player.grounded=true;
-    Player.jumping=false; Player.braking=false; Player.exhaust=[];
-    BG.offsets = [0,0,0];
     document.getElementById('start-screen').style.display='none';
     document.getElementById('gameover-screen').classList.add('hidden');
     document.getElementById('power-indicator').classList.add('hidden');
@@ -1846,6 +1889,13 @@ const Game = {
     document.body.classList.remove('acid-mode', 'van-gogh-mode');
     document.body.classList.add('game-active');
     document.body.classList.toggle('anime-mode', SETTINGS.animeMode);
+    this.resizeCanvas();
+    GS.reset();
+    Obstacles.list = []; Obstacles.spawnTimer = -FIRST_SPAWN_DELAY_MS; Obstacles.lastAction = null;
+    Particles.list = []; Particles.rain = [];
+    Player.x=PLAYER_X; Player.y=GROUND_Y-Player.height; Player.vy=0; Player.grounded=true;
+    Player.jumping=false; Player.braking=false; Player.exhaust=[];
+    BG.offsets = [0,0,0];
     RouteMap.reset();
     Audio._init();
     Audio.startMusic();
@@ -1906,6 +1956,27 @@ const Game = {
     this.render();
 
     if (GS.alive) this.animId = requestAnimationFrame(ts => this.loop(ts));
+  },
+
+  resizeCanvas() {
+    if (!this.canvas) return;
+    const previousGroundY = GROUND_Y;
+    CanvasView.apply(this.canvas);
+    this.ctx = this.canvas.getContext('2d');
+    this.ctx.imageSmoothingEnabled = false;
+    Acid.resize();
+
+    if (!GS.alive) return;
+    const groundDelta = GROUND_Y - previousGroundY;
+    Player.x = PLAYER_X;
+    if (Player.grounded) Player.y = GROUND_Y - Player.height;
+    else Player.y += groundDelta;
+    for (const obs of Obstacles.list) {
+      const def = Obstacles.TYPES[obs.type];
+      if (!def) continue;
+      obs.y = def.fullH ? 0 : GROUND_Y - obs.h + (def.yOff || 0);
+      if (def.fullH) obs.h = CH;
+    }
   },
 
   render() {
@@ -2065,6 +2136,11 @@ const Game = {
 
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && GS.lastTime) GS.lastTime = performance.now();
+    });
+
+    window.addEventListener('resize', () => this.resizeCanvas());
+    window.addEventListener('orientationchange', () => {
+      setTimeout(() => this.resizeCanvas(), 80);
     });
 
     const animeToggle = document.getElementById('toggle-anime');

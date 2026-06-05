@@ -82,11 +82,19 @@ body {
   line-height: 1;
 }
 
+#canvas-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 800 / 380;
+  min-height: 0;
+  overflow: hidden;
+  background: #1a1a2e;
+}
+
 #gameCanvas {
   display: block;
   width: 100%;
-  aspect-ratio: 800 / 380;
-  height: auto;
+  height: 100%;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   background: #1a1a2e;
@@ -156,9 +164,9 @@ body {
 /* UI overlay on top of canvas */
 #ui-overlay {
   position: absolute;
-  top: var(--route-height); left: 0;
+  top: 0; left: 0;
   width: 100%;
-  aspect-ratio: 800 / 380;
+  height: 100%;
   pointer-events: none;
   z-index: 10;
 }
@@ -487,8 +495,10 @@ button:active { transform: scale(0.97); box-shadow: 2px 2px #884400; }
   }
 
   #game-wrapper {
-    --game-width: 100vw;
+    --game-width: 100%;
     --route-height: 32px;
+    width: 100%;
+    max-width: 100%;
     height: 100svh;
     border: 0;
     box-shadow: none;
@@ -501,19 +511,25 @@ button:active { transform: scale(0.97); box-shadow: 2px 2px #884400; }
     font-size: clamp(5px, 1.55vw, 6px);
   }
 
-  #gameCanvas {
-    width: 100vw;
+  #canvas-stage {
+    width: 100%;
     height: 100%;
-    min-height: 0;
+    aspect-ratio: auto;
+    align-self: start;
+  }
+
+  #gameCanvas {
+    width: 100%;
+    height: 100%;
     aspect-ratio: auto;
   }
 
   #ui-overlay {
-    top: var(--route-height);
-    width: 100vw;
-    height: calc(100svh - var(--route-height) - clamp(178px, 30svh, 232px));
-    min-height: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
     aspect-ratio: auto;
+    min-height: 0;
   }
 
   #start-screen,
@@ -530,6 +546,11 @@ button:active { transform: scale(0.97); box-shadow: 2px 2px #884400; }
     background:
       linear-gradient(180deg, rgba(12,12,28,0.64) 0 13svh, rgba(0,0,0,0.18) 13svh 62svh, rgba(0,0,0,0.9) 62svh),
       rgba(0,0,0,0.82);
+  }
+
+  #gameover-screen {
+    justify-content: center;
+    padding: calc(env(safe-area-inset-top) + 20px) 12px calc(env(safe-area-inset-bottom) + 20px);
   }
 
   #start-title {
